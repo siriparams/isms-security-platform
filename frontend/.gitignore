@@ -1,24 +1,109 @@
-# See https://docs.github.com/get-started/getting-started-with-git/ignoring-files for more about ignoring files.
+# ============================================================
+# ISMS SECURITY PLATFORM - ROOT GITIGNORE
+# ============================================================
 
-# Compiled output
-/dist
-/tmp
-/out-tsc
-/bazel-out
 
-# Node
-/node_modules
-npm-debug.log
-yarn-error.log
+# ============================================================
+# ENVIRONMENT VARIABLES / SECRETS
+# ============================================================
 
-# IDEs and editors
-.idea/
-.project
-.classpath
-.c9/
-*.launch
-.settings/
-*.sublime-workspace
+.env
+.env.*
+!.env.example
+
+**/.env
+**/.env.*
+!**/.env.example
+
+
+# ============================================================
+# PYTHON
+# ============================================================
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+**/venv/
+**/.venv/
+**/env/
+**/ENV/
+
+# Python cache
+__pycache__/
+**/__pycache__/
+
+*.py[cod]
+*$py.class
+
+# Python packaging
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Pytest
+.pytest_cache/
+
+# Coverage
+.coverage
+.coverage.*
+htmlcov/
+
+
+# ============================================================
+# NODE / ANGULAR
+# ============================================================
+
+node_modules/
+**/node_modules/
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Angular generated files
+.angular/
+**/.angular/
+
+dist/
+**/dist/
+
+tmp/
+**/tmp/
+
+out-tsc/
+**/out-tsc/
+
+bazel-out/
+**/bazel-out/
+
+coverage/
+**/coverage/
+
+
+# ============================================================
+# ANGULAR / TYPESCRIPT
+# ============================================================
+
+*.tsbuildinfo
+
+# Angular cache
+.angular/cache/
+
+# Test results
+test-results/
+__screenshots__/
+**/__screenshots__/
+
+
+# ============================================================
+# IDE / EDITOR
+# ============================================================
 
 # Visual Studio Code
 .vscode/*
@@ -27,18 +112,88 @@ yarn-error.log
 !.vscode/launch.json
 !.vscode/extensions.json
 !.vscode/mcp.json
-.history/*
 
-# Miscellaneous
-/.angular/cache
-.sass-cache/
-/connect.lock
-/coverage
-/libpeerconnection.log
-testem.log
-/typings
-__screenshots__/
+**/.vscode/*
+!**/.vscode/settings.json
+!**/.vscode/tasks.json
+!**/.vscode/launch.json
+!**/.vscode/extensions.json
+!**/.vscode/mcp.json
 
-# System files
+# IntelliJ / PyCharm
+.idea/
+**/.idea/
+
+# Eclipse
+.project
+.classpath
+.settings/
+
+# Sublime
+*.sublime-workspace
+
+# History
+.history/
+
+
+# ============================================================
+# OPERATING SYSTEM
+# ============================================================
+
 .DS_Store
+**/.DS_Store
+
 Thumbs.db
+**/Thumbs.db
+
+Desktop.ini
+**/Desktop.ini
+
+
+# ============================================================
+# DATABASE / LOCAL DATA
+# ============================================================
+
+*.db
+*.sqlite
+*.sqlite3
+
+*.sqlite-journal
+*.db-journal
+
+**/*.db
+**/*.sqlite
+**/*.sqlite3
+
+
+# ============================================================
+# ISMS ASSET DISCOVERY GENERATED FILES
+# ============================================================
+
+# Generated asset JSON
+agent/**/asset.json
+
+# Any generated asset output
+**/asset.json
+
+
+# ============================================================
+# LOG FILES
+# ============================================================
+
+*.log
+logs/
+**/logs/
+
+
+# ============================================================
+# TEMPORARY FILES
+# ============================================================
+
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+
+~$*

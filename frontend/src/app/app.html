@@ -1,4 +1,5 @@
-<div class="login-page">
+<!-- Login Page -->
+<div class="login-page" *ngIf="!isLoggedIn">
   <div class="login-card">
 
     <div class="logo">
@@ -10,13 +11,116 @@
 
     <form (submit)="login($event)">
       <label for="username">Username</label>
-      <input id="username" type="text" placeholder="Enter your username" />
+      <input
+        id="username"
+        name="username"
+        type="text"
+        placeholder="Enter your username"
+      />
 
       <label for="password">Password</label>
-      <input id="password" type="password" placeholder="Enter your password" />
+      <input
+        id="password"
+        name="password"
+        type="password"
+        placeholder="Enter your password"
+      />
 
       <button type="submit">Login</button>
     </form>
 
   </div>
+</div>
+
+
+<!-- Asset Inventory -->
+<div class="dashboard" *ngIf="isLoggedIn">
+
+  <header class="dashboard-header">
+    <div>
+      <div class="logo small-logo">ISMS</div>
+      <h1>Asset Inventory</h1>
+      <p>Information Security Management System</p>
+    </div>
+
+    <button class="logout-button" (click)="logout()">
+      Logout
+    </button>
+  </header>
+
+
+  <main class="asset-container">
+
+    <div class="asset-header">
+      <div>
+        <h2>Assets</h2>
+        <p>Computer assets collected from the network</p>
+      </div>
+
+      <button class="refresh-button" (click)="getAssets()">
+        Refresh
+      </button>
+    </div>
+
+
+    <!-- Asset table -->
+    <div class="table-container">
+
+      <table *ngIf="assets.length > 0">
+
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Hostname</th>
+            <th>IP Address</th>
+            <th>Operating System</th>
+            <th>Hardware</th>
+            <th>Network</th>
+            <th>Software</th>
+            <th>Management</th>
+            <th>Security Posture</th>
+            <th>User</th>
+          </tr>
+        </thead>
+
+        <tbody>
+
+          <tr *ngFor="let asset of assets">
+
+            <td>{{ asset.id }}</td>
+
+            <td>{{ asset.hostname }}</td>
+
+            <td>{{ asset.ip_address }}</td>
+
+            <td>{{ asset.operating_system }}</td>
+
+            <td>{{ asset.hardware }}</td>
+
+            <td>{{ asset.network }}</td>
+
+            <td>{{ asset.software }}</td>
+
+            <td>{{ asset.management }}</td>
+
+            <td>{{ asset.security_posture }}</td>
+
+            <td>{{ asset.user_context }}</td>
+
+          </tr>
+
+        </tbody>
+
+      </table>
+
+
+      <!-- No assets message -->
+      <div class="no-assets" *ngIf="assets.length === 0">
+        No assets found.
+      </div>
+
+    </div>
+
+  </main>
+
 </div>

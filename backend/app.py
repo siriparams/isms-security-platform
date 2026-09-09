@@ -56,7 +56,8 @@ def login():
 def home():
     return "ISMS Backend is running!"
 
-# Asset upload route
+
+# Add asset
 @app.route("/assets", methods=["POST"])
 def add_asset():
     try:
@@ -98,7 +99,52 @@ def add_asset():
         return {
             "error": str(e)
         }, 500
-        
+
+
+# Get all assets
+@app.route("/assets", methods=["GET"])
+def get_assets():
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        cur.execute("""
+            SELECT id, hostname, ip_address, operating_system,
+                   hardware, network, software, management,
+                   security_posture, user_context
+            FROM assets
+            ORDER BY id
+        """)
+
+        rows = cur.fetchall()
+
+        assets = []
+
+        for row in rows:
+            assets.append({
+                "id": row[0],
+                "hostname": row[1],
+                "ip_address": row[2],
+                "operating_system": row[3],
+                "hardware": row[4],
+                "network": row[5],
+                "software": row[6],
+                "management": row[7],
+                "security_posture": row[8],
+                "user_context": row[9]
+            })
+
+        cur.close()
+        conn.close()
+
+        return jsonify(assets)
+
+    except Exception as e:
+        return jsonify({
+            "error": str(e)
+        }), 500
+
+
 # Start Flask server
 if __name__ == "__main__":
     app.run(debug=True)
