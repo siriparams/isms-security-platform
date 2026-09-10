@@ -3,15 +3,41 @@ from flask_cors import CORS
 import psycopg2
 import os
 from dotenv import load_dotenv
+import jwt
+from datetime import datetime, timedelta, timezone
+from functools import wraps
 
-# Load values from .env
+
+# =========================================================
+# LOAD ENVIRONMENT VARIABLES
+# =========================================================
+
 load_dotenv()
 
+
+# =========================================================
+# FLASK APPLICATION
+# =========================================================
+
 app = Flask(__name__)
+
 CORS(app)
 
 
-# PostgreSQL connection
+# =========================================================
+# JWT CONFIGURATION
+# =========================================================
+
+JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
+
+if not JWT_SECRET_KEY:
+    raise RuntimeError("JWT_SECRET_KEY is missing from .env")
+
+
+# =========================================================
+# POSTGRESQL DATABASE CONNECTION
+# =========================================================
+
 def get_db_connection():
     return psycopg2.connect(
         host=os.getenv("DB_HOST"),
@@ -22,55 +48,195 @@ def get_db_connection():
     )
 
 
-# Test PostgreSQL connection
+# =========================================================
+# TEST DATABASE CONNECTION
+# =========================================================
+
 try:
     conn = get_db_connection()
+
     print("PostgreSQL connected successfully!")
+
     conn.close()
+
 except Exception as e:
+
     print("PostgreSQL connection failed:", e)
 
 
-# Login API
+# =========================================================
+# JWT AUTHENTICATION DECORATOR
+# =========================================================
+
+def token_required(f):
+
+    @wraps(f)
+    def decorated(*args, **kwargs):
+
+        auth_header = request.headers.get("Authorization")
+
+        # No Authorization header
+        if not auth_header:
+
+            return jsonify({
+                "success": False,
+                "message": "JWT token is missing"
+            }), 401
+
+        try:
+
+            # Expected format:
+            # Authorization: Bearer <token>
+
+            parts = auth_header.split()
+
+            if len(parts) != 2 or parts[0].lower() != "bearer":
+
+                return jsonify({
+                    "success": False,
+                    "message": "Invalid Authorization header"
+                }), 401
+
+            token = parts[1]
+
+            # Decode and verify JWT
+            decoded = jwt.decode(
+                token,
+                JWT_SECRET_KEY,
+                algorithms=["HS256"]
+            )
+
+            # Store logged-in username
+            request.current_user = decoded.get("username")
+
+        except jwt.ExpiredSignatureError:
+
+            return jsonify({
+                "success": False,
+                "message": "JWT token has expired"
+            }), 401
+
+        except jwt.InvalidTokenError:
+
+            return jsonify({
+                "success": False,
+                "message": "Invalid JWT token"
+            }), 401
+
+        return f(*args, **kwargs)
+
+    return decorated
+
+
+# =========================================================
+# LOGIN API
+# =========================================================
+
 @app.route("/login", methods=["POST"])
 def login():
-    data = request.json
+
+    data = request.get_json()
+
+    if not data:
+
+        return jsonify({
+            "success": False,
+            "message": "Request body is missing"
+        }), 400
 
     username = data.get("username")
     password = data.get("password")
 
+    # Current project credentials
     if username == "admin" and password == "admin123":
-        return {
-            "success": True,
-            "message": "Login successful"
+
+        # JWT payload
+        payload = {
+            "username": username,
+            "iat": datetime.now(timezone.utc),
+            "exp": datetime.now(timezone.utc) + timedelta(hours=1)
         }
 
-    return {
+        # Generate JWT token
+        token = jwt.encode(
+            payload,
+            JWT_SECRET_KEY,
+            algorithm="HS256"
+        )
+
+        return jsonify({
+            "success": True,
+            "message": "Login successful",
+            "token": token
+        }), 200
+
+    # Invalid credentials
+    return jsonify({
         "success": False,
         "message": "Invalid username or password"
-    }, 401
+    }), 401
 
 
-# Home route
-@app.route("/")
+# =========================================================
+# HOME ROUTE
+# =========================================================
+
+@app.route("/", methods=["GET"])
 def home():
+
     return "ISMS Backend is running!"
 
 
-# Add asset
+# =========================================================
+# ADD ASSET
+# =========================================================
+
 @app.route("/assets", methods=["POST"])
+@token_required
 def add_asset():
+
+    conn = None
+    cur = None
+
     try:
-        data = request.json
+
+        data = request.get_json()
+
+        if not data:
+
+            return jsonify({
+                "success": False,
+                "message": "Request body is missing"
+            }), 400
 
         conn = get_db_connection()
         cur = conn.cursor()
 
         cur.execute("""
             INSERT INTO assets
-            (hostname, ip_address, operating_system, hardware,
-             network, software, management, security_posture, user_context)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            (
+                hostname,
+                ip_address,
+                operating_system,
+                hardware,
+                network,
+                software,
+                management,
+                security_posture,
+                user_context
+            )
+            VALUES
+            (
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s
+            )
             RETURNING id
         """, (
             data.get("hostname"),
@@ -87,31 +253,60 @@ def add_asset():
         asset_id = cur.fetchone()[0]
 
         conn.commit()
-        cur.close()
-        conn.close()
 
-        return {
+        return jsonify({
+            "success": True,
             "message": "Asset added successfully",
             "asset_id": asset_id
-        }, 201
+        }), 201
 
     except Exception as e:
-        return {
+
+        if conn:
+            conn.rollback()
+
+        return jsonify({
+            "success": False,
             "error": str(e)
-        }, 500
+        }), 500
+
+    finally:
+
+        if cur:
+            cur.close()
+
+        if conn:
+            conn.close()
 
 
-# Get all assets
+# =========================================================
+# GET ALL ASSETS
+# =========================================================
+
 @app.route("/assets", methods=["GET"])
+@token_required
 def get_assets():
+
+    conn = None
+    cur = None
+
     try:
+
         conn = get_db_connection()
         cur = conn.cursor()
 
         cur.execute("""
-            SELECT id, hostname, ip_address, operating_system,
-                   hardware, network, software, management,
-                   security_posture, user_context
+            SELECT
+                id,
+                hostname,
+                ip_address,
+                operating_system,
+                hardware,
+                network,
+                software,
+                management,
+                security_posture,
+                user_context
             FROM assets
             ORDER BY id
         """)
@@ -121,6 +316,7 @@ def get_assets():
         assets = []
 
         for row in rows:
+
             assets.append({
                 "id": row[0],
                 "hostname": row[1],
@@ -134,17 +330,32 @@ def get_assets():
                 "user_context": row[9]
             })
 
-        cur.close()
-        conn.close()
-
-        return jsonify(assets)
+        return jsonify(assets), 200
 
     except Exception as e:
+
         return jsonify({
+            "success": False,
             "error": str(e)
         }), 500
 
+    finally:
 
-# Start Flask server
+        if cur:
+            cur.close()
+
+        if conn:
+            conn.close()
+
+
+# =========================================================
+# START FLASK SERVER
+# =========================================================
+
 if __name__ == "__main__":
-    app.run(debug=True)
+
+    app.run(
+        debug=True,
+        host="127.0.0.1",
+        port=5000
+    )
