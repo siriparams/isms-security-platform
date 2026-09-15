@@ -1,281 +1,471 @@
-import { Component } from '@angular/core';
+import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
+import {
+  HttpClient,
+  HttpClientModule,
+  HttpHeaders
+} from '@angular/common/http';
+
+interface Asset {
+  id: number;
+  hostname: string;
+  ip_address: string | null;
+
+  operating_system: any;
+  hardware: any;
+  network: any;
+  software: any;
+  management: any;
+  security_posture: any;
+  user_context: any;
+
+  device_identity: any;
+  host_identity: any;
+
+  discovery_timestamp: string | null;
+  platform: string | null;
+  agent_version: string | null;
+  created_at: string | null;
+
+  // Allows the existing HTML to access any additional
+  // asset property without TypeScript template errors.
+  [key: string]: any;
+}
 
 @Component({
   selector: 'app-root',
-  imports: [CommonModule],
+  standalone: true,
+
+  imports: [
+    CommonModule,
+    FormsModule,
+    HttpClientModule
+  ],
+
   templateUrl: './app.html',
   styleUrl: './app.css'
 })
-export class App {
+export class App implements OnInit {
 
-  // Stores assets received from Flask
-  assets: any[] = [];
+  // =====================================================
+  // BACKEND URL
+  // =====================================================
 
-  // Controls whether login page or dashboard is displayed
+  private apiUrl = 'http://127.0.0.1:5000';
+
+
+  // =====================================================
+  // LOGIN VARIABLES
+  // =====================================================
+
+  username = '';
+  password = '';
+
+  loginError = '';
+
   isLoggedIn = false;
 
 
-  // =========================================================
+  // =====================================================
+  // ASSET VARIABLES
+  // =====================================================
+
+  assets: Asset[] = [];
+
+  loadingAssets = false;
+
+  assetError = '';
+
+
+  // =====================================================
+  // HTTP CLIENT
+  // =====================================================
+
+  constructor(
+    private http: HttpClient
+  ) {}
+
+
+  // =====================================================
+  // INITIALIZE APPLICATION
+  // =====================================================
+
+  ngOnInit(): void {
+
+    const token = localStorage.getItem('token');
+
+    const savedUsername =
+      localStorage.getItem('username');
+
+
+    if (token) {
+
+      this.isLoggedIn = true;
+
+      if (savedUsername) {
+
+        this.username = savedUsername;
+      }
+
+      this.loadAssets();
+    }
+  }
+
+
+  // =====================================================
   // LOGIN
-  // =========================================================
+  // =====================================================
 
-  async login(event: Event) {
+  login(): void {
 
-    event.preventDefault();
-
-    const form = event.target as HTMLFormElement;
-
-    const username = (
-      form.elements.namedItem('username') as HTMLInputElement
-    ).value;
-
-    const password = (
-      form.elements.namedItem('password') as HTMLInputElement
-    ).value;
+    this.loginError = '';
 
 
-    try {
+    // Check empty fields
+    if (!this.username || !this.password) {
 
-      const response = await fetch(
-        'http://127.0.0.1:5000/login',
-        {
-          method: 'POST',
+      this.loginError =
+        'Please enter username and password.';
 
-          headers: {
-            'Content-Type': 'application/json'
-          },
-
-          body: JSON.stringify({
-            username: username,
-            password: password
-          })
-        }
-      );
+      return;
+    }
 
 
-      const data = await response.json();
+    const loginData = {
+
+      username: this.username,
+
+      password: this.password
+    };
 
 
-      // =====================================================
-      // LOGIN SUCCESSFUL
-      // =====================================================
-
-      if (response.ok) {
-
-        // Get JWT token returned by Flask
-        const token = data.token;
+    console.log('Sending login request...');
 
 
-        // Make sure JWT token was received
-        if (!token) {
+    this.http
+      .post<any>(
+        `${this.apiUrl}/login`,
+        loginData
+      )
+      .subscribe({
 
-          alert(
-            'Login successful, but JWT token was not received.'
+        // -----------------------------------------------
+        // LOGIN SUCCESS
+        // -----------------------------------------------
+
+        next: (response) => {
+
+          console.log(
+            'Login response:',
+            response
           );
 
-          return;
-        }
+
+          if (response.success) {
+
+            // Save JWT token
+            localStorage.setItem(
+              'token',
+              response.token
+            );
 
 
-        // Store JWT token in browser
-        localStorage.setItem(
-          'jwt_token',
-          token
-        );
+            // Save username
+            const loggedInUsername =
+              response.user?.username ||
+              this.username;
+
+            localStorage.setItem(
+              'username',
+              loggedInUsername
+            );
 
 
-        // Set login state
-        this.isLoggedIn = true;
+            this.username =
+              loggedInUsername;
+
+            this.isLoggedIn = true;
+
+            this.loginError = '';
 
 
-        alert('Login successful!');
-
-
-        // Get protected assets
-        await this.getAssets();
-
-      }
-
-
-      // =====================================================
-      // LOGIN FAILED
-      // =====================================================
-
-      else {
-
-        alert(data.message);
-
-      }
-
-    }
-
-
-    // =======================================================
-    // CONNECTION ERROR
-    // =======================================================
-
-    catch (error) {
-
-      console.error(
-        'Login error:',
-        error
-      );
-
-      alert(
-        'Cannot connect to backend'
-      );
-
-    }
-
-  }
-
-
-  // =========================================================
-  // GET ALL ASSETS
-  // =========================================================
-
-  async getAssets() {
-
-    try {
-
-      // Get JWT token from browser
-      const token = localStorage.getItem(
-        'jwt_token'
-      );
-
-
-      // If JWT token does not exist
-      if (!token) {
-
-        console.error(
-          'JWT token is missing'
-        );
-
-        this.isLoggedIn = false;
-
-        return;
-      }
-
-
-      // Send JWT token to Flask
-      const response = await fetch(
-        'http://127.0.0.1:5000/assets',
-        {
-          method: 'GET',
-
-          headers: {
-
-            'Authorization': `Bearer ${token}`
-
+            // Load assets
+            this.loadAssets();
           }
 
+          else {
+
+            this.loginError =
+              response.message ||
+              'Login failed.';
+          }
+        },
+
+
+        // -----------------------------------------------
+        // LOGIN ERROR
+        // -----------------------------------------------
+
+        error: (error) => {
+
+          console.error(
+            'Login error:',
+            error
+          );
+
+
+          if (error.status === 401) {
+
+            this.loginError =
+              'Invalid username or password.';
+          }
+
+          else if (error.status === 400) {
+
+            this.loginError =
+              error.error?.message ||
+              'Username and password are required.';
+          }
+
+          else if (error.status === 0) {
+
+            this.loginError =
+              'Cannot connect to ISMS server. Make sure Flask is running on port 5000.';
+          }
+
+          else {
+
+            this.loginError =
+              error.error?.message ||
+              'Login failed. Please try again.';
+          }
         }
-      );
 
-
-      // =====================================================
-      // ASSETS SUCCESSFULLY RECEIVED
-      // =====================================================
-
-      if (response.ok) {
-
-        this.assets = await response.json();
-
-
-        console.log(
-          'Assets:',
-          this.assets
-        );
-
-      }
-
-
-      // =====================================================
-      // JWT INVALID OR EXPIRED
-      // =====================================================
-
-      else if (response.status === 401) {
-
-        console.error(
-          'JWT token is invalid or expired'
-        );
-
-
-        // Remove invalid JWT
-        localStorage.removeItem(
-          'jwt_token'
-        );
-
-
-        // Log user out
-        this.isLoggedIn = false;
-
-        this.assets = [];
-
-
-        alert(
-          'Your session has expired. Please login again.'
-        );
-
-      }
-
-
-      // =====================================================
-      // OTHER ERROR
-      // =====================================================
-
-      else {
-
-        console.error(
-          'Failed to get assets'
-        );
-
-      }
-
-    }
-
-
-    // =======================================================
-    // CONNECTION ERROR
-    // =======================================================
-
-    catch (error) {
-
-      console.error(
-        'Cannot connect to backend:',
-        error
-      );
-
-    }
-
+      });
   }
 
 
-  // =========================================================
-  // LOGOUT
-  // =========================================================
+  // =====================================================
+  // LOAD ASSETS
+  // =====================================================
 
-  logout() {
+  loadAssets(): void {
 
-    // Remove JWT token
-    localStorage.removeItem(
-      'jwt_token'
-    );
+    const token =
+      localStorage.getItem('token');
 
 
-    // Change login state
-    this.isLoggedIn = false;
+    if (!token) {
+
+      this.isLoggedIn = false;
+
+      return;
+    }
 
 
-    // Clear assets
-    this.assets = [];
+    this.loadingAssets = true;
+
+    this.assetError = '';
+
+
+    // JWT Authorization header
+    const headers =
+      new HttpHeaders({
+
+        'Authorization':
+          `Bearer ${token}`
+      });
 
 
     console.log(
-      'Logged out successfully'
+      'Loading assets...'
     );
 
+
+    this.http
+      .get<Asset[]>(
+        `${this.apiUrl}/assets`,
+        {
+          headers: headers
+        }
+      )
+      .subscribe({
+
+        // -----------------------------------------------
+        // SUCCESS
+        // -----------------------------------------------
+
+        next: (response) => {
+
+          console.log(
+            'Assets received:',
+            response
+          );
+
+
+          this.assets =
+            Array.isArray(response)
+              ? response
+              : [];
+
+
+          this.loadingAssets = false;
+
+          this.assetError = '';
+        },
+
+
+        // -----------------------------------------------
+        // ERROR
+        // -----------------------------------------------
+
+        error: (error) => {
+
+          console.error(
+            'Get assets error:',
+            error
+          );
+
+
+          this.loadingAssets = false;
+
+
+          if (error.status === 401) {
+
+            // Token expired/invalid
+            localStorage.removeItem(
+              'token'
+            );
+
+            localStorage.removeItem(
+              'username'
+            );
+
+
+            this.isLoggedIn = false;
+
+            this.assets = [];
+
+            this.loginError =
+              'Your session has expired. Please login again.';
+          }
+
+          else if (error.status === 0) {
+
+            this.assetError =
+              'Cannot connect to ISMS server. Make sure Flask is running on http://127.0.0.1:5000.';
+          }
+
+          else {
+
+            this.assetError =
+              error.error?.message ||
+              'Failed to load assets.';
+          }
+        }
+
+      });
   }
 
+
+  // =====================================================
+  // COUNT WINDOWS ASSETS
+  // =====================================================
+
+  getWindowsAssets(): number {
+
+    return this.assets.filter(
+      (asset) => {
+
+        const platform =
+          asset.platform ||
+          asset.operating_system?.Platform ||
+          asset.operating_system?.platform ||
+          '';
+
+        return String(platform)
+          .toLowerCase()
+          .includes('windows');
+      }
+    ).length;
+  }
+
+
+  // =====================================================
+  // LOGOUT
+  // =====================================================
+
+  logout(): void {
+
+    const token =
+      localStorage.getItem('token');
+
+
+    // Clear frontend session
+    localStorage.removeItem(
+      'token'
+    );
+
+    localStorage.removeItem(
+      'username'
+    );
+
+
+    this.isLoggedIn = false;
+
+    this.username = '';
+
+    this.password = '';
+
+    this.assets = [];
+
+    this.loginError = '';
+
+    this.assetError = '';
+
+
+    // Inform Flask backend
+    if (!token) {
+
+      return;
+    }
+
+
+    const headers =
+      new HttpHeaders({
+
+        'Authorization':
+          `Bearer ${token}`
+      });
+
+
+    this.http
+      .post<any>(
+        `${this.apiUrl}/logout`,
+        {},
+        {
+          headers: headers
+        }
+      )
+      .subscribe({
+
+        next: (response) => {
+
+          console.log(
+            'Logout successful:',
+            response
+          );
+        },
+
+        error: (error) => {
+
+          console.log(
+            'Logout request error:',
+            error
+          );
+        }
+
+      });
+  }
 }
