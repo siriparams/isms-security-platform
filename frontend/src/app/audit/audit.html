@@ -1,1 +1,859 @@
-<p>audit works!</p>
+<div class="app-container">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+
+    <div class="logo-section">
+      <div class="logo-box">
+        ISMS
+      </div>
+
+      <div class="logo-text">
+        <strong>Information Security</strong>
+        <span>Management & Reporting</span>
+      </div>
+    </div>
+
+    <nav class="sidebar-menu">
+
+      <a routerLink="/home">
+        Home
+      </a>
+
+      <a
+        routerLink="/inventory"
+        routerLinkActive="active">
+        Asset Inventory
+      </a>
+
+      <a routerLink="/risk-register">
+        Risk Register
+      </a>
+
+      <a
+        routerLink="/audit"
+        routerLinkActive="active">
+        Audit
+      </a>
+
+      <a routerLink="/findings">
+        Findings & CAPA
+      </a>
+
+      <a routerLink="/reports">
+        Reports
+      </a>
+
+    </nav>
+
+    <div class="sidebar-bottom">
+
+      <a routerLink="/settings">
+        Settings
+      </a>
+
+      <a
+        class="logout-link"
+        (click)="logout()">
+        Logout
+      </a>
+
+    </div>
+
+  </aside>
+
+
+  <!-- MAIN -->
+  <main class="main-content">
+
+    <!-- HEADER -->
+    <header class="top-header">
+
+      <div class="header-left">
+
+        <div class="breadcrumb">
+
+          <a routerLink="/inventory">
+            ← Asset Inventory
+          </a>
+
+          <span>/</span>
+
+          <span>Endpoint Audit</span>
+
+        </div>
+
+        <h1>
+          Endpoint Audit Details
+        </h1>
+
+      </div>
+
+
+      <div class="header-right">
+
+        <span class="welcome">
+          Welcome, {{ username }}
+        </span>
+
+        <button
+          class="logout-button"
+          (click)="logout()">
+          Logout
+        </button>
+
+      </div>
+
+    </header>
+
+
+    <!-- LOADING -->
+    <div
+      class="loading-container"
+      *ngIf="loading">
+
+      <div class="spinner"></div>
+
+      <p>
+        Loading endpoint details...
+      </p>
+
+    </div>
+
+
+    <!-- ERROR -->
+    <div
+      class="error-container"
+      *ngIf="!loading && error">
+
+      <div class="error-icon">
+        !
+      </div>
+
+      <h2>
+        Unable to Load Endpoint
+      </h2>
+
+      <p>
+        {{ error }}
+      </p>
+
+      <button
+        class="back-button"
+        (click)="backToInventory()">
+        Back to Asset Inventory
+      </button>
+
+    </div>
+
+
+    <!-- AUDIT PAGE -->
+    <div
+      class="audit-content"
+      *ngIf="!loading && !error && asset">
+
+
+      <!-- ENDPOINT HEADER -->
+      <section class="endpoint-header-card">
+
+        <div class="endpoint-title">
+
+          <div class="endpoint-icon">
+            PC
+          </div>
+
+          <div>
+
+            <h2>
+              {{ getHostname() }}
+            </h2>
+
+            <p>
+              Endpoint ID: {{ asset.id }}
+            </p>
+
+          </div>
+
+        </div>
+
+
+        <div class="endpoint-actions">
+
+          <button
+            class="back-button"
+            (click)="backToInventory()">
+            ← Back
+          </button>
+
+          <button
+            class="audit-button"
+            (click)="runAudit()">
+            Run Audit
+          </button>
+
+          <button
+            class="export-button"
+            (click)="exportReport()">
+            Export Report
+          </button>
+
+        </div>
+
+      </section>
+
+
+      <!-- SYSTEM INFORMATION -->
+      <section class="section-card">
+
+        <div class="section-title">
+
+          <h2>
+            System Information
+          </h2>
+
+          <p>
+            Information collected from the selected Windows endpoint.
+          </p>
+
+        </div>
+
+
+        <div class="info-grid">
+
+          <div class="info-item">
+            <span class="info-label">
+              Hostname
+            </span>
+
+            <span class="info-value">
+              {{ getHostname() }}
+            </span>
+          </div>
+
+
+          <div class="info-item">
+            <span class="info-label">
+              Asset ID
+            </span>
+
+            <span class="info-value">
+              {{ asset.id }}
+            </span>
+          </div>
+
+
+          <div class="info-item">
+            <span class="info-label">
+              IP Address
+            </span>
+
+            <span class="info-value">
+              {{ getIP() }}
+            </span>
+          </div>
+
+
+          <div class="info-item">
+            <span class="info-label">
+              Platform
+            </span>
+
+            <span class="info-value">
+              {{ getPlatform() }}
+            </span>
+          </div>
+
+
+          <div class="info-item">
+            <span class="info-label">
+              Agent Version
+            </span>
+
+            <span class="info-value">
+              {{ getAgentVersion() }}
+            </span>
+          </div>
+
+
+          <div class="info-item">
+            <span class="info-label">
+              Discovery Timestamp
+            </span>
+
+            <span class="info-value">
+              {{ asset.discovery_timestamp || 'Not collected' }}
+            </span>
+          </div>
+
+
+          <div class="info-item">
+            <span class="info-label">
+              Added to Inventory
+            </span>
+
+            <span class="info-value">
+              {{ asset.created_at || 'Not available' }}
+            </span>
+          </div>
+
+        </div>
+
+      </section>
+
+
+      <!-- OPERATING SYSTEM + HARDWARE -->
+      <div class="details-grid">
+
+
+        <!-- OS -->
+        <section class="detail-card">
+
+          <div class="detail-card-header">
+            <h2>
+              Operating System
+            </h2>
+          </div>
+
+          <div class="detail-content">
+
+            <div
+              class="field-list"
+              *ngIf="getOSFields().length > 0">
+
+              <div
+                class="field-row"
+                *ngFor="let field of getOSFields()">
+
+                <span>
+                  {{ field.label }}
+                </span>
+
+                <strong>
+                  {{ field.value }}
+                </strong>
+
+              </div>
+
+            </div>
+
+            <div
+              class="not-collected"
+              *ngIf="getOSFields().length === 0">
+
+              Operating system information was not collected.
+
+            </div>
+
+          </div>
+
+        </section>
+
+
+        <!-- HARDWARE -->
+        <section class="detail-card">
+
+          <div class="detail-card-header">
+            <h2>
+              Hardware
+            </h2>
+          </div>
+
+          <div class="detail-content">
+
+            <div
+              class="field-list"
+              *ngIf="getHardwareFields().length > 0">
+
+              <div
+                class="field-row"
+                *ngFor="let field of getHardwareFields()">
+
+                <span>
+                  {{ field.label }}
+                </span>
+
+                <strong>
+                  {{ field.value }}
+                </strong>
+
+              </div>
+
+            </div>
+
+            <div
+              class="not-collected"
+              *ngIf="getHardwareFields().length === 0">
+
+              Hardware information was not collected.
+
+            </div>
+
+          </div>
+
+        </section>
+
+      </div>
+
+
+      <!-- NETWORK -->
+      <section class="section-card">
+
+        <div class="section-title">
+
+          <h2>
+            Network Information
+          </h2>
+
+          <p>
+            Network information collected from this endpoint.
+          </p>
+
+        </div>
+
+
+        <div
+          class="network-grid"
+          *ngIf="getNetworkFields().length > 0">
+
+          <div
+            class="network-item"
+            *ngFor="let field of getNetworkFields()">
+
+            <span>
+              {{ field.label }}
+            </span>
+
+            <strong>
+              {{ field.value }}
+            </strong>
+
+          </div>
+
+        </div>
+
+
+        <div
+          class="not-collected"
+          *ngIf="getNetworkFields().length === 0">
+
+          Network information was not collected.
+
+        </div>
+
+      </section>
+
+
+      <!-- AUDIT SUMMARY -->
+      <section class="audit-summary-grid">
+
+
+        <div class="score-card">
+
+          <div class="card-heading">
+
+            <h2>
+              Overall Score
+            </h2>
+
+            <span class="status-badge">
+              {{ getAuditStatus() }}
+            </span>
+
+          </div>
+
+
+          <div class="score-content">
+
+            <div class="score-circle">
+
+              <div>
+                <strong>--</strong>
+                <span>/100</span>
+              </div>
+
+            </div>
+
+
+            <div class="score-description">
+
+              <h3>
+                Audit not yet evaluated
+              </h3>
+
+              <p>
+                No compliance score is displayed until
+                the real Windows audit checklist is executed.
+              </p>
+
+            </div>
+
+          </div>
+
+        </div>
+
+
+        <div class="status-card">
+
+          <div class="card-heading">
+
+            <h2>
+              Checks Summary
+            </h2>
+
+          </div>
+
+
+          <div class="status-row">
+            <span>Passed</span>
+            <strong>--</strong>
+          </div>
+
+          <div class="status-row">
+            <span>Failed</span>
+            <strong>--</strong>
+          </div>
+
+          <div class="status-row">
+            <span>Manual Review</span>
+            <strong>--</strong>
+          </div>
+
+          <div class="status-row">
+            <span>Error</span>
+            <strong>--</strong>
+          </div>
+
+        </div>
+
+      </section>
+
+
+      <!-- SECURITY CHECKLIST -->
+      <section class="section-card">
+
+        <div class="section-title">
+
+          <h2>
+            Security Checklist Results
+          </h2>
+
+          <p>
+            Windows security checklist results will appear here
+            after the real audit engine is connected.
+          </p>
+
+        </div>
+
+
+        <div class="audit-not-evaluated">
+
+          <div class="audit-not-icon">
+            !
+          </div>
+
+          <div>
+
+            <strong>
+              Checklist not evaluated yet
+            </strong>
+
+            
+          </div>
+
+        </div>
+
+      </section>
+
+
+      <!-- SECURITY INFORMATION -->
+      <div class="details-grid">
+
+
+        <!-- SECURITY -->
+        <section class="detail-card">
+
+          <div class="detail-card-header">
+            <h2>
+              Security Posture
+            </h2>
+          </div>
+
+          <div class="detail-content">
+
+            <div
+              class="field-list"
+              *ngIf="getSecurityFields().length > 0">
+
+              <div
+                class="field-row"
+                *ngFor="let field of getSecurityFields()">
+
+                <span>
+                  {{ field.label }}
+                </span>
+
+                <strong>
+                  {{ field.value }}
+                </strong>
+
+              </div>
+
+            </div>
+
+            <div
+              class="not-collected"
+              *ngIf="getSecurityFields().length === 0">
+
+              No security posture information was collected.
+
+            </div>
+
+          </div>
+
+        </section>
+
+
+        <!-- MANAGEMENT -->
+        <section class="detail-card">
+
+          <div class="detail-card-header">
+            <h2>
+              Management Information
+            </h2>
+          </div>
+
+          <div class="detail-content">
+
+            <div
+              class="field-list"
+              *ngIf="getManagementFields().length > 0">
+
+              <div
+                class="field-row"
+                *ngFor="let field of getManagementFields()">
+
+                <span>
+                  {{ field.label }}
+                </span>
+
+                <strong>
+                  {{ field.value }}
+                </strong>
+
+              </div>
+
+            </div>
+
+            <div
+              class="not-collected"
+              *ngIf="getManagementFields().length === 0">
+
+              No management information was collected.
+
+            </div>
+
+          </div>
+
+        </section>
+
+
+        <!-- USER CONTEXT -->
+        <section class="detail-card">
+
+          <div class="detail-card-header">
+            <h2>
+              User Context
+            </h2>
+          </div>
+
+          <div class="detail-content">
+
+            <div
+              class="field-list"
+              *ngIf="getUserContextFields().length > 0">
+
+              <div
+                class="field-row"
+                *ngFor="let field of getUserContextFields()">
+
+                <span>
+                  {{ field.label }}
+                </span>
+
+                <strong>
+                  {{ field.value }}
+                </strong>
+
+              </div>
+
+            </div>
+
+            <div
+              class="not-collected"
+              *ngIf="getUserContextFields().length === 0">
+
+              No user context information was collected.
+
+            </div>
+
+          </div>
+
+        </section>
+
+
+        <!-- SOFTWARE -->
+        <section class="detail-card">
+
+          <div class="detail-card-header">
+            <h2>
+              Software Information
+            </h2>
+          </div>
+
+          <div class="detail-content">
+
+            <div
+              class="field-list"
+              *ngIf="getSoftwareFields().length > 0">
+
+              <div
+                class="field-row"
+                *ngFor="let field of getSoftwareFields()">
+
+                <span>
+                  {{ field.label }}
+                </span>
+
+                <strong>
+                  {{ field.value }}
+                </strong>
+
+              </div>
+
+            </div>
+
+            <div
+              class="not-collected"
+              *ngIf="getSoftwareFields().length === 0">
+
+              No software information was collected.
+
+            </div>
+
+          </div>
+
+        </section>
+
+      </div>
+
+
+      <!-- IDENTITIES -->
+      <div class="details-grid">
+
+
+        <section class="detail-card">
+
+          <div class="detail-card-header">
+            <h2>
+              Device Identity
+            </h2>
+          </div>
+
+          <div class="detail-content">
+
+            <div
+              class="field-list"
+              *ngIf="getDeviceIdentityFields().length > 0">
+
+              <div
+                class="field-row"
+                *ngFor="let field of getDeviceIdentityFields()">
+
+                <span>
+                  {{ field.label }}
+                </span>
+
+                <strong>
+                  {{ field.value }}
+                </strong>
+
+              </div>
+
+            </div>
+
+            <div
+              class="not-collected"
+              *ngIf="getDeviceIdentityFields().length === 0">
+
+              No device identity information was collected.
+
+            </div>
+
+          </div>
+
+        </section>
+
+
+        <section class="detail-card">
+
+          <div class="detail-card-header">
+            <h2>
+              Host Identity
+            </h2>
+          </div>
+
+          <div class="detail-content">
+
+            <div
+              class="field-list"
+              *ngIf="getHostIdentityFields().length > 0">
+
+              <div
+                class="field-row"
+                *ngFor="let field of getHostIdentityFields()">
+
+                <span>
+                  {{ field.label }}
+                </span>
+
+                <strong>
+                  {{ field.value }}
+                </strong>
+
+              </div>
+
+            </div>
+
+            <div
+              class="not-collected"
+              *ngIf="getHostIdentityFields().length === 0">
+
+              No host identity information was collected.
+
+            </div>
+
+          </div>
+
+        </section>
+
+      </div>
+
+
+      <!-- FOOTER -->
+      <div class="audit-footer">
+
+        <span>
+          Endpoint ID: {{ asset.id }}
+        </span>
+
+        <span>
+          Data displayed from the selected endpoint record
+        </span>
+
+      </div>
+
+    </div>
+
+  </main>
+
+</div>

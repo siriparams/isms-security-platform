@@ -1,1 +1,151 @@
-<p>home works!</p>
+<div class="layout">
+
+  <aside class="sidebar">
+
+    <div class="brand">
+
+      <div class="brand-logo">
+        ISMS
+      </div>
+
+      <div>
+        <strong>Information Security</strong>
+        <span>Management & Reporting</span>
+      </div>
+
+    </div>
+
+    <nav>
+
+      <a
+        routerLink="/home"
+        routerLinkActive="active"
+      >
+        Home
+      </a>
+
+      <a
+        routerLink="/inventory"
+        routerLinkActive="active"
+      >
+        Asset Inventory
+      </a>
+
+      <a>
+        Risk Register
+      </a>
+
+      <a
+        routerLink="/audit"
+        routerLinkActive="active"
+      >
+        Audit
+      </a>
+
+      <a>
+        Findings & CAPA
+      </a>
+
+      <a>
+        Reports
+      </a>
+
+    </nav>
+
+    <div class="bottom-nav">
+
+      <a>
+        Settings
+      </a>
+
+      <a
+        class="logout-link"
+        (click)="logout()"
+      >
+        Logout
+      </a>
+
+    </div>
+
+  </aside>
+
+
+  <main class="main">
+
+    <header>
+
+      <div>
+
+        <p class="breadcrumb">
+          Security Operations / Home
+        </p>
+
+        <h1>
+          Information Security Management System
+        </h1>
+
+      </div>
+
+      <div class="user-area">
+
+        <span>
+          Welcome, {{ username }}
+        </span>
+
+        <button (click)="logout()">
+          Logout
+        </button>
+
+      </div>
+
+    </header>
+
+
+    <section class="content">
+
+      <h2>
+        Security Overview
+      </h2>
+
+      <p class="description">
+        Centralized information security management and reporting platform.
+      </p>
+
+
+      <div class="cards">
+
+        <div class="card">
+          <h3>Asset Management</h3>
+          <p>
+            Discover and manage system assets collected by the ISMS agents.
+          </p>
+        </div>
+
+        <div class="card">
+          <h3>Risk Management</h3>
+          <p>
+            Identify and manage information security risks.
+          </p>
+        </div>
+
+        <div class="card">
+          <h3>Audit Management</h3>
+          <p>
+            Track endpoint audits and security compliance activities.
+          </p>
+        </div>
+
+        <div class="card">
+          <h3>Security Reporting</h3>
+          <p>
+            View security information and management reports.
+          </p>
+        </div>
+
+      </div>
+
+    </section>
+
+  </main>
+
+</div>

@@ -1,16 +1,41 @@
 # ============================================================
-# ISMS Windows Asset Discovery Agent
-# Version: 1.0.0
+# ISMS WINDOWS ASSET DISCOVERY AGENT
 # ============================================================
 
 $ErrorActionPreference = "Continue"
 
+# ------------------------------------------------------------
+# CONFIGURATION
+# ------------------------------------------------------------
+
 $AgentVersion = "1.0.0"
+
 $ServerUrl = "http://127.0.0.1:5000/agent/assets"
+
 $AgentApiKey = "isms_agent_2026_secure_key"
 
-$ScriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
-$AssetFile = Join-Path $ScriptDirectory "asset.json"
+$OutputFile = Join-Path $PSScriptRoot "asset.json"
+
+# ------------------------------------------------------------
+# SAFE EXECUTION HELPER
+# ------------------------------------------------------------
+
+function Invoke-Safe {
+    param (
+        [scriptblock]$Script
+    )
+
+    try {
+        return & $Script
+    }
+    catch {
+        return $null
+    }
+}
+
+# ------------------------------------------------------------
+# START
+# ------------------------------------------------------------
 
 Write-Host ""
 Write-Host "============================================"
@@ -18,180 +43,213 @@ Write-Host " ISMS Windows Asset Discovery Agent"
 Write-Host "============================================"
 Write-Host ""
 
-# ------------------------------------------------------------
-# Helper: safely run a command
-# ------------------------------------------------------------
-function Invoke-Safe {
-    param(
-        [scriptblock]$ScriptBlock,
-        $Default = $null
-    )
-
-    try {
-        $result = & $ScriptBlock 2>$null
-        if ($null -eq $result) {
-            return $Default
-        }
-        return $result
-    }
-    catch {
-        return $Default
-    }
-}
-
-# ------------------------------------------------------------
-# Discovery timestamp
-# ------------------------------------------------------------
 $DiscoveryTimestamp = (Get-Date).ToUniversalTime().ToString("o")
 
-# ------------------------------------------------------------
+# ============================================================
 # DEVICE IDENTITY
-# ------------------------------------------------------------
+# ============================================================
+
 $deviceIdentity = [ordered]@{
-    SMBIOS_UUID       = $null
-    Machine_GUID      = $null
-    TPM_Present       = $false
-    TPM_Spec_Version  = $null
+    SMBIOS_UUID          = $null
+    Machine_GUID         = $null
+    TPM_Present          = $false
+    TPM_Spec_Version     = $null
+    TPM_EK_PublicKeyHash = $null
 }
 
-$cs = Invoke-Safe { Get-CimInstance Win32_ComputerSystemProduct }
-if ($cs) {
-    $deviceIdentity.SMBIOS_UUID = $cs.UUID
+# SMBIOS UUID
+
+$computerProduct = Invoke-Safe {
+    Get-CimInstance Win32_ComputerSystemProduct
 }
+
+if ($computerProduct) {
+    $deviceIdentity.SMBIOS_UUID = $computerProduct.UUID
+}
+
+# Machine GUID
 
 $machineGuid = Invoke-Safe {
-    (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Cryptography" -Name MachineGuid).MachineGuid
-}
-if ($machineGuid) {
-    $deviceIdentity.Machine_GUID = $machineGuid
+    Get-ItemProperty `
+        -Path "HKLM:\SOFTWARE\Microsoft\Cryptography" `
+        -Name "MachineGuid"
 }
 
-$tpm = Invoke-Safe { Get-Tpm }
+if ($machineGuid) {
+    $deviceIdentity.Machine_GUID = $machineGuid.MachineGuid
+}
+
+# TPM
+
+$tpm = Invoke-Safe {
+    Get-Tpm
+}
+
 if ($tpm) {
+
     $deviceIdentity.TPM_Present = [bool]$tpm.TpmPresent
 
-    $tpmSpec = Invoke-Safe {
-        (Get-CimInstance -Namespace "root\CIMV2\Security\MicrosoftTpm" `
-            -ClassName Win32_Tpm).SpecVersion
+    $tpmInfo = Invoke-Safe {
+        Get-CimInstance `
+            -Namespace "root\CIMV2\Security\MicrosoftTpm" `
+            -ClassName Win32_Tpm
     }
 
-    if ($tpmSpec) {
-        $deviceIdentity.TPM_Spec_Version = $tpmSpec
+    if ($tpmInfo) {
+        $deviceIdentity.TPM_Spec_Version = $tpmInfo.SpecVersion
+    }
+
+    # TPM Endorsement Key information
+    if ($deviceIdentity.TPM_Present) {
+
+        $tpmEk = Invoke-Safe {
+            Get-TpmEndorsementKeyInfo -HashAlgorithm Sha256
+        }
+
+        if ($tpmEk) {
+
+            if ($tpmEk.PublicKeyHash) {
+                $deviceIdentity.TPM_EK_PublicKeyHash =
+                    [string]$tpmEk.PublicKeyHash
+            }
+        }
     }
 }
 
-# ------------------------------------------------------------
+# ============================================================
 # HOST IDENTITY
-# ------------------------------------------------------------
-$hostname = $env:COMPUTERNAME
+# ============================================================
 
-$fqdn = Invoke-Safe {
-    [System.Net.Dns]::GetHostEntry($env:COMPUTERNAME).HostName
-} $hostname
-
-$domain = Invoke-Safe {
-    (Get-CimInstance Win32_ComputerSystem).Domain
-} "WORKGROUP"
-
-$hostIdentity = [ordered]@{
-    Hostname = $hostname
-    FQDN     = $fqdn
-    Domain   = $domain
-}
-
-# ------------------------------------------------------------
-# HARDWARE
-# ------------------------------------------------------------
 $computerSystem = Invoke-Safe {
     Get-CimInstance Win32_ComputerSystem
+}
+
+$hostname = $env:COMPUTERNAME
+
+$fqdn = $null
+
+try {
+    $fqdn = [System.Net.Dns]::GetHostEntry($hostname).HostName
+}
+catch {
+    $fqdn = $hostname
+}
+
+$domain = $null
+$domainJoined = $false
+
+if ($computerSystem) {
+
+    $domain = $computerSystem.Domain
+
+    $domainJoined = [bool]$computerSystem.PartOfDomain
+}
+
+$hostIdentity = [ordered]@{
+    Hostname        = $hostname
+    FQDN            = $fqdn
+    Domain          = $domain
+    Local_Device_Name = $hostname
+    Domain_Joined   = $domainJoined
+}
+
+# ============================================================
+# HARDWARE
+# ============================================================
+
+$hardware = [ordered]@{
+    Manufacturer = $null
+    Model        = $null
+    Serial_Number = $null
+    CPU          = @()
+    RAM_GB       = $null
+    Disks        = @()
+}
+
+if ($computerSystem) {
+
+    $hardware.Manufacturer = $computerSystem.Manufacturer
+    $hardware.Model = $computerSystem.Model
+
+    if ($computerSystem.TotalPhysicalMemory) {
+
+        $hardware.RAM_GB = [math]::Round(
+            $computerSystem.TotalPhysicalMemory / 1GB,
+            2
+        )
+    }
 }
 
 $bios = Invoke-Safe {
     Get-CimInstance Win32_BIOS
 }
 
-$processor = Invoke-Safe {
-    Get-CimInstance Win32_Processor | Select-Object -First 1
-}
-
-$manufacturer = $null
-$model = $null
-$ramGB = $null
-$cpuName = $null
-$serialNumber = $null
-
-if ($computerSystem) {
-    $manufacturer = $computerSystem.Manufacturer
-    $model = $computerSystem.Model
-    $ramGB = [math]::Round(
-        ($computerSystem.TotalPhysicalMemory / 1GB),
-        2
-    )
-}
-
-if ($processor) {
-    $cpuName = $processor.Name
-}
-
 if ($bios) {
-    $serialNumber = $bios.SerialNumber
+    $hardware.Serial_Number = $bios.SerialNumber
 }
+
+# CPU
+
+$processors = Invoke-Safe {
+    Get-CimInstance Win32_Processor
+}
+
+foreach ($processor in @($processors)) {
+
+    $hardware.CPU += [ordered]@{
+        Name             = $processor.Name
+        Manufacturer     = $processor.Manufacturer
+        Cores            = $processor.NumberOfCores
+        LogicalProcessors = $processor.NumberOfLogicalProcessors
+    }
+}
+
+# Disks
 
 $diskInfo = Invoke-Safe {
-    Get-CimInstance Win32_DiskDrive |
-        Select-Object -First 1
+    Get-CimInstance Win32_DiskDrive
 }
 
-$disks = [ordered]@{
-    Model        = $null
-    SerialNumber = $null
-    SizeGB       = $null
+foreach ($disk in @($diskInfo)) {
+
+    $diskSizeGB = $null
+
+    if ($disk.Size) {
+        $diskSizeGB = [math]::Round(
+            $disk.Size / 1GB,
+            2
+        )
+    }
+
+    $hardware.Disks += [ordered]@{
+        Model        = $disk.Model
+        Manufacturer = $disk.Manufacturer
+        Serial_Number = $disk.SerialNumber
+        Size_GB      = $diskSizeGB
+        Interface    = $disk.InterfaceType
+    }
 }
 
-if ($diskInfo) {
-    $disks.Model = $diskInfo.Model
-    $disks.SerialNumber = $diskInfo.SerialNumber
-    $disks.SizeGB = [math]::Round(
-        ($diskInfo.Size / 1GB),
-        2
-    )
-}
-
-$hardware = [ordered]@{
-    Manufacturer  = $manufacturer
-    Model         = $model
-    Serial_Number = $serialNumber
-    CPU           = $cpuName
-    RAM_GB        = $ramGB
-    Disks         = $disks
-}
-
-# ------------------------------------------------------------
+# ============================================================
 # NETWORK
-# ------------------------------------------------------------
+# ============================================================
+
 $network = @()
 
-$adapters = Invoke-Safe {
-    Get-NetIPConfiguration |
-        Where-Object {
-            $_.NetAdapter.Status -eq "Up" -and
-            $_.NetAdapter.HardwareInterface
-        }
+$ipConfigurations = Invoke-Safe {
+    Get-NetIPConfiguration
 }
 
-foreach ($adapter in @($adapters)) {
+foreach ($adapter in @($ipConfigurations)) {
 
-    $dnsServers = @()
-
-    if ($adapter.DnsServer.ServerAddresses) {
-        $dnsServers = @(
-            $adapter.DnsServer.ServerAddresses
-        )
+    if (-not $adapter) {
+        continue
     }
 
     $ipAddresses = @()
 
     if ($adapter.IPv4Address) {
+
         $ipAddresses = @(
             $adapter.IPv4Address.IPAddress
         )
@@ -200,21 +258,37 @@ foreach ($adapter in @($adapters)) {
     $gateways = @()
 
     if ($adapter.IPv4DefaultGateway) {
+
         $gateways = @(
             $adapter.IPv4DefaultGateway.NextHop
         )
     }
 
+    $dnsServers = @()
+
+    if ($adapter.DNSServer) {
+
+        $dnsServers = @(
+            $adapter.DNSServer.ServerAddresses
+        )
+    }
+
     $network += [ordered]@{
         Interface   = $adapter.InterfaceAlias
-        MAC_Address = $adapter.NetAdapter.MacAddress
+        MAC_Address = if ($adapter.NetAdapter) {
+            $adapter.NetAdapter.MacAddress
+        }
+        else {
+            $null
+        }
         IP_Address  = $ipAddresses
         Gateway     = $gateways
         DNS         = $dnsServers
     }
 }
 
-# Fallback for systems where Get-NetIPConfiguration is unavailable
+# Fallback
+
 if ($network.Count -eq 0) {
 
     $legacyAdapters = Invoke-Safe {
@@ -229,18 +303,29 @@ if ($network.Count -eq 0) {
         $network += [ordered]@{
             Interface   = $adapter.Description
             MAC_Address = $adapter.MACAddress
-            IP_Address  = @($adapter.IPAddress | Where-Object {
-                $_ -match "^\d{1,3}(\.\d{1,3}){3}$"
-            })
-            Gateway     = @($adapter.DefaultIPGateway)
-            DNS         = @($adapter.DNSServerSearchOrder)
+
+            IP_Address  = @(
+                $adapter.IPAddress |
+                    Where-Object {
+                        $_ -match "^\\d{1,3}(\\.\\d{1,3}){3}$"
+                    }
+            )
+
+            Gateway = @(
+                $adapter.DefaultIPGateway
+            )
+
+            DNS = @(
+                $adapter.DNSServerSearchOrder
+            )
         }
     }
 }
 
-# ------------------------------------------------------------
+# ============================================================
 # OPERATING SYSTEM
-# ------------------------------------------------------------
+# ============================================================
+
 $osInfoCim = Invoke-Safe {
     Get-CimInstance Win32_OperatingSystem
 }
@@ -259,33 +344,57 @@ if ($osInfoCim) {
     if ($osInfoCim.LastBootUpTime) {
 
         try {
-            $bootDate = [Management.ManagementDateTimeConverter]::ToDateTime(
-                $osInfoCim.LastBootUpTime
-            )
 
-            $milliseconds = [DateTimeOffset]$bootDate
-            $milliseconds = $milliseconds.ToUnixTimeMilliseconds()
+            $bootDate = [DateTime]$osInfoCim.LastBootUpTime
 
-            $lastBoot = "/Date($milliseconds)/"
+            $lastBoot = $bootDate.ToUniversalTime().ToString("o")
         }
         catch {
+
             $lastBoot = $null
         }
     }
 }
 
+# ============================================================
+# SECURE BOOT
+# ============================================================
+
 $secureBoot = $null
 
 try {
-    if (Confirm-SecureBootUEFI -ErrorAction Stop) {
-        $secureBoot = $true
-    }
-    else {
-        $secureBoot = $false
-    }
+
+    $secureBootResult =
+        Confirm-SecureBootUEFI -ErrorAction Stop
+
+    $secureBoot = [bool]$secureBootResult
 }
 catch {
-    $secureBoot = $null
+
+    try {
+
+        $secureBootRegistry =
+            Get-ItemProperty `
+                -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecureBoot\State" `
+                -Name "UEFISecureBootEnabled" `
+                -ErrorAction Stop
+
+        $secureBootValue =
+            [int]$secureBootRegistry.UEFISecureBootEnabled
+
+        if ($secureBootValue -eq 1) {
+
+            $secureBoot = $true
+        }
+        elseif ($secureBootValue -eq 0) {
+
+            $secureBoot = $false
+        }
+    }
+    catch {
+
+        $secureBoot = $null
+    }
 }
 
 $os = [ordered]@{
@@ -296,17 +405,20 @@ $os = [ordered]@{
     Secure_Boot = $secureBoot
 }
 
-# ------------------------------------------------------------
+# ============================================================
 # MANAGEMENT
-# ------------------------------------------------------------
+# ============================================================
+
 $management = @()
 
 $management += [ordered]@{
     Name          = "Windows Management"
     Present       = $true
-    Version       = $null
-    Last_Check_In = $null
+    Agent_Version = $AgentVersion
+    Last_Check_In = $DiscoveryTimestamp
 }
+
+# MDM / Intune
 
 $intunePresent = $false
 
@@ -316,7 +428,9 @@ $intunePaths = @(
 )
 
 foreach ($path in $intunePaths) {
+
     if (Test-Path $path) {
+
         $intunePresent = $true
         break
     }
@@ -329,11 +443,14 @@ $management += [ordered]@{
     Last_Check_In = $null
 }
 
-# ------------------------------------------------------------
+# ============================================================
 # SECURITY POSTURE
+# ============================================================
+
+# ------------------------------------------------------------
+# FIREWALL
 # ------------------------------------------------------------
 
-# Firewall
 $firewallProfiles = @()
 
 $profiles = Invoke-Safe {
@@ -341,260 +458,355 @@ $profiles = Invoke-Safe {
 }
 
 foreach ($profile in @($profiles)) {
+
     $firewallProfiles += [ordered]@{
         Profile = $profile.Name
-        Enabled = if ($profile.Enabled) { 1 } else { 0 }
+        Enabled = if ($profile.Enabled) {
+            $true
+        }
+        else {
+            $false
+        }
     }
 }
 
-# Antivirus / EDR
-$antivirus = $null
+# ------------------------------------------------------------
+# ANTIVIRUS / EDR
+# ------------------------------------------------------------
+
+$antivirus = @()
 
 $securityProducts = Invoke-Safe {
+
     Get-CimInstance `
         -Namespace "root\SecurityCenter2" `
         -ClassName AntiVirusProduct
 }
 
-if ($securityProducts) {
-
-    $product = @($securityProducts) | Select-Object -First 1
+foreach ($product in @($securityProducts)) {
 
     if ($product) {
-        $antivirus = [ordered]@{
-            DisplayName               = $product.displayName
-            ProductState               = $product.productState
-            PathToSignedProductExe     = $product.pathToSignedProductExe
+
+        $antivirus += [ordered]@{
+            DisplayName           = $product.displayName
+            ProductState          = $product.productState
+            PathToSignedProductExe =
+                $product.pathToSignedProductExe
         }
     }
 }
 
-# Windows Update status
+$edrPresent = ($antivirus.Count -gt 0)
+
+# ------------------------------------------------------------
+# WINDOWS UPDATE
+# ------------------------------------------------------------
+
 $updateStatus = $null
 
 try {
 
-    $updateSession = New-Object -ComObject Microsoft.Update.Session
-    $updateSearcher = $updateSession.CreateUpdateSearcher()
+    $updateSession =
+        New-Object -ComObject Microsoft.Update.Session
 
-    $searchResult = $updateSearcher.Search(
-        "IsInstalled=0 and IsHidden=0"
-    )
+    $updateSearcher =
+        $updateSession.CreateUpdateSearcher()
 
-    $pendingUpdates = $searchResult.Updates.Count
+    $searchResult =
+        $updateSearcher.Search(
+            "IsInstalled=0 and IsHidden=0"
+        )
 
-    if ($pendingUpdates -eq 0) {
-        $updateStatus = "No updates pending"
-    }
-    elseif ($pendingUpdates -eq 1) {
-        $updateStatus = "1 update pending"
-    }
-    else {
-        $updateStatus = "$pendingUpdates updates pending"
+    $pendingUpdates =
+        $searchResult.Updates.Count
+
+    $updateStatus = [ordered]@{
+        Pending_Updates = $pendingUpdates
+        Status = if ($pendingUpdates -eq 0) {
+            "Up to date"
+        }
+        else {
+            "Updates pending"
+        }
     }
 }
 catch {
-    $updateStatus = "Unable to determine update status"
+
+    $updateStatus = $null
 }
 
-# BitLocker / Encryption
-# IMPORTANT:
-# Get-BitLockerVolume can produce Access Denied on some Windows systems.
-# We intentionally suppress that error so asset collection continues.
+# ------------------------------------------------------------
+# ENCRYPTION / BITLOCKER
+# ------------------------------------------------------------
+
 $encryption = @()
 
-try {
+$bitlockerVolumes = Invoke-Safe {
+    Get-BitLockerVolume
+}
 
-    $bitlockerVolumes = Get-BitLockerVolume -ErrorAction Stop
+foreach ($volume in @($bitlockerVolumes)) {
 
-    foreach ($volume in @($bitlockerVolumes)) {
+    if ($volume) {
 
         $encryption += [ordered]@{
-            MountPoint          = $volume.MountPoint
-            VolumeStatus        = "$($volume.VolumeStatus)"
-            ProtectionStatus    = "$($volume.ProtectionStatus)"
-            EncryptionMethod    = "$($volume.EncryptionMethod)"
-            EncryptionPercentage = $volume.EncryptionPercentage
+            MountPoint        = $volume.MountPoint
+            VolumeStatus      = $volume.VolumeStatus
+            ProtectionStatus  = $volume.ProtectionStatus
+            EncryptionMethod  = $volume.EncryptionMethod
+            EncryptionPercent = $volume.EncryptionPercentage
         }
     }
 }
-catch {
-    # Leave Encryption as an empty array.
-}
 
-# Local administrators
-$localAdministrators = @()
+# Fallback encryption information
 
-try {
+if ($encryption.Count -eq 0) {
 
-    $adminMembers = Get-LocalGroupMember `
-        -Group "Administrators" `
-        -ErrorAction Stop
+    $encryptableVolumes = Invoke-Safe {
 
-    foreach ($member in @($adminMembers)) {
-
-        $localAdministrators += [ordered]@{
-            Name       = $member.Name
-            ObjectClass = "$($member.ObjectClass)"
-        }
+        Get-CimInstance `
+            -Namespace "root\CIMV2\Security\MicrosoftVolumeEncryption" `
+            -ClassName Win32_EncryptableVolume
     }
-}
-catch {
 
-    # Fallback using WinNT provider
-    try {
+    foreach ($volume in @($encryptableVolumes)) {
 
-        $group = [ADSI]"WinNT://./Administrators,group"
+        if (-not $volume) {
+            continue
+        }
 
-        foreach ($member in @($group.Invoke("Members"))) {
+        $encryptionMethod = $null
+        $conversionStatus = $null
+        $protectionStatus = $null
 
-            $name = $member.GetType().InvokeMember(
-                "Name",
-                "GetProperty",
-                $null,
-                $member,
-                $null
-            )
+        try {
+            $methodResult =
+                Invoke-Safe {
+                    $volume.GetEncryptionMethod()
+                }
 
-            $class = $member.GetType().InvokeMember(
-                "Class",
-                "GetProperty",
-                $null,
-                $member,
-                $null
-            )
-
-            $localAdministrators += [ordered]@{
-                Name        = "$env:COMPUTERNAME\$name"
-                ObjectClass = "$class"
+            if ($methodResult) {
+                $encryptionMethod =
+                    $methodResult.EncryptionMethod
             }
         }
-    }
-    catch {
-        # Keep empty if access is restricted.
+        catch {}
+
+        try {
+            $conversionResult =
+                Invoke-Safe {
+                    $volume.GetConversionStatus()
+                }
+
+            if ($conversionResult) {
+                $conversionStatus =
+                    $conversionResult.ConversionStatus
+            }
+        }
+        catch {}
+
+        try {
+            $protectionResult =
+                Invoke-Safe {
+                    $volume.GetProtectionStatus()
+                }
+
+            if ($protectionResult) {
+                $protectionStatus =
+                    $protectionResult.ProtectionStatus
+            }
+        }
+        catch {}
+
+        $encryption += [ordered]@{
+            MountPoint       = $volume.DriveLetter
+            ConversionStatus = $conversionStatus
+            ProtectionStatus = $protectionStatus
+            EncryptionMethod = $encryptionMethod
+        }
     }
 }
 
+# ------------------------------------------------------------
+# LOCAL ADMINISTRATORS
+# ------------------------------------------------------------
+
+$localAdministrators = @()
+
+$localAdmins = Invoke-Safe {
+    Get-LocalGroupMember -Group "Administrators"
+}
+
+foreach ($admin in @($localAdmins)) {
+
+    if ($admin) {
+
+        $localAdministrators += [ordered]@{
+            Name   = $admin.Name
+            ObjectClass = $admin.ObjectClass
+            PrincipalSource = $admin.PrincipalSource
+        }
+    }
+}
+
+# ------------------------------------------------------------
+# SECURITY POSTURE OBJECT
+# ------------------------------------------------------------
+
 $securityPosture = [ordered]@{
+
     Firewall = $firewallProfiles
+
     Antivirus_EDR = $antivirus
+
+    EDR_Present = $edrPresent
+
     Update_Status = $updateStatus
+
     Encryption = $encryption
+
     Local_Administrators = $localAdministrators
 }
 
-# ------------------------------------------------------------
-# SOFTWARE
-# ------------------------------------------------------------
+# ============================================================
+# SOFTWARE INVENTORY
+# ============================================================
+
 $software = @()
 
-$uninstallPaths = @(
+$softwarePaths = @(
     "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
-    "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*",
-    "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*"
+    "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
 )
 
-foreach ($path in $uninstallPaths) {
+foreach ($path in $softwarePaths) {
 
-    $installed = Invoke-Safe {
-        Get-ItemProperty $path |
-            Where-Object {
-                $_.DisplayName
-            }
+    $applications = Invoke-Safe {
+        Get-ItemProperty $path
     }
 
-    foreach ($item in @($installed)) {
+    foreach ($app in @($applications)) {
 
-        $software += [ordered]@{
-            Name      = "$($item.DisplayName)"
-            Version   = "$($item.DisplayVersion)"
-            Publisher = "$($item.Publisher)"
+        if (
+            $app.DisplayName -and
+            $app.DisplayName.Trim() -ne ""
+        ) {
+
+            $software += [ordered]@{
+                Name      = $app.DisplayName
+                Publisher = $app.Publisher
+                Version   = $app.DisplayVersion
+            }
         }
     }
 }
 
 # Remove duplicate software entries
+
 $software = @(
     $software |
-        Group-Object {
-            "$($_.Name)|$($_.Version)|$($_.Publisher)"
-        } |
-        ForEach-Object {
-            $_.Group | Select-Object -First 1
-        }
+        Sort-Object Name, Publisher, Version -Unique
 )
 
-# ------------------------------------------------------------
+# ============================================================
 # USER CONTEXT
-# ------------------------------------------------------------
+# ============================================================
+
 $currentUser = $env:USERNAME
+
 $lastLoggedUser = $null
-$userDomain = $env:USERDOMAIN
 
-$lastLoggedUser = Invoke-Safe {
-    (Get-CimInstance Win32_ComputerSystem).UserName
+try {
+
+    $lastLoggedUser =
+        (Get-CimInstance Win32_ComputerSystem).UserName
 }
+catch {
 
-if (-not $lastLoggedUser) {
-    $lastLoggedUser = "$env:USERDOMAIN\$env:USERNAME"
+    $lastLoggedUser = $currentUser
 }
 
 $userContext = [ordered]@{
     Current_User     = $currentUser
     Last_Logged_User = $lastLoggedUser
-    Domain           = $userDomain
+    Domain           = $domain
+    Domain_Joined    = $domainJoined
 }
 
-# ------------------------------------------------------------
+# ============================================================
 # COMPLETE ASSET OBJECT
-# ------------------------------------------------------------
+# ============================================================
+
 $asset = [ordered]@{
+
     discovery_timestamp = $DiscoveryTimestamp
-    platform             = "Windows"
-    device_identity      = $deviceIdentity
-    host_identity        = $hostIdentity
-    hardware             = $hardware
-    network              = @($network)
-    os                   = $os
-    management           = @($management)
-    security_posture     = $securityPosture
-    software             = @($software)
-    user_context         = $userContext
-    agent_version        = $AgentVersion
+
+    platform = "Windows"
+
+    device_identity = $deviceIdentity
+
+    host_identity = $hostIdentity
+
+    hardware = $hardware
+
+    network = @($network)
+
+    os = $os
+
+    management = @($management)
+
+    security_posture = $securityPosture
+
+    software = @($software)
+
+    user_context = $userContext
+
+    agent_version = $AgentVersion
 }
 
-# ------------------------------------------------------------
-# WRITE ASSET JSON
-# ------------------------------------------------------------
+# ============================================================
+# CREATE JSON
+# ============================================================
+
 try {
 
-    $json = $asset | ConvertTo-Json -Depth 12
+    $json = $asset |
+        ConvertTo-Json -Depth 15
 
-    $json | Set-Content `
-        -Path $AssetFile `
-        -Encoding UTF8
+    $json |
+        Out-File `
+            -FilePath $OutputFile `
+            -Encoding UTF8
 
+    Write-Host ""
     Write-Host "============================================"
     Write-Host " Asset Discovery Completed"
     Write-Host "============================================"
     Write-Host ""
-    Write-Host "Agent Version: $AgentVersion"
-    Write-Host "Asset JSON created:"
-    Write-Host $AssetFile
-    Write-Host ""
 
+    Write-Host "Agent Version: $AgentVersion"
+
+    Write-Host "Asset JSON created:"
+    Write-Host $OutputFile
+
+    Write-Host ""
 }
 catch {
 
     Write-Host ""
-    Write-Host "Failed to create asset.json"
+    Write-Host "ERROR: Could not create asset.json"
     Write-Host $_.Exception.Message
+    Write-Host ""
+
     exit 1
 }
 
-# ------------------------------------------------------------
+# ============================================================
 # SEND ASSET TO ISMS SERVER
-# ------------------------------------------------------------
+# ============================================================
+
+Write-Host ""
 Write-Host "============================================"
 Write-Host " Sending asset to ISMS server..."
 Write-Host "============================================"
@@ -606,17 +818,12 @@ try {
         "X-Agent-API-Key" = $AgentApiKey
     }
 
-    # PowerShell 5.1 may encode a string body using the system code page.
-    # Send explicit UTF-8 bytes so Flask can always decode the JSON correctly.
-    $jsonBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
-
     $response = Invoke-RestMethod `
         -Uri $ServerUrl `
         -Method Post `
         -Headers $headers `
-        -ContentType "application/json; charset=utf-8" `
-        -Body $jsonBytes `
-        -ErrorAction Stop
+        -Body $json `
+        -ContentType "application/json"
 
     Write-Host ""
     Write-Host "============================================"
@@ -624,16 +831,14 @@ try {
     Write-Host "============================================"
     Write-Host ""
 
-    if ($response.asset_id) {
-        Write-Host "Asset ID: $($response.asset_id)"
+    if ($response) {
+
+        Write-Host "Server response:"
+
+        $response |
+            ConvertTo-Json -Depth 10 |
+            Write-Host
     }
-
-    if ($response.message) {
-        Write-Host "Server: $($response.message)"
-    }
-
-    Write-Host ""
-
 }
 catch {
 
@@ -644,9 +849,11 @@ catch {
     Write-Host ""
 
     if ($_.ErrorDetails.Message) {
+
         Write-Host $_.ErrorDetails.Message
     }
     else {
+
         Write-Host $_.Exception.Message
     }
 

@@ -1,1 +1,61 @@
-<p>login works!</p>
+<div class="login-page">
+
+  <div class="login-card">
+
+    <div class="logo">
+      ISMS
+    </div>
+
+    <h1>
+      Information Security Management System
+    </h1>
+
+    <p class="subtitle">
+      Secure access to your security management platform
+    </p>
+
+    <form (ngSubmit)="login()">
+
+      <label>
+        Username
+      </label>
+
+      <input
+        type="text"
+        name="username"
+        [(ngModel)]="username"
+        placeholder="Enter username"
+        autocomplete="username"
+      />
+
+      <label>
+        Password
+      </label>
+
+      <input
+        type="password"
+        name="password"
+        [(ngModel)]="password"
+        placeholder="Enter password"
+        autocomplete="current-password"
+      />
+
+      <p
+        class="error"
+        *ngIf="loginError"
+      >
+        {{ loginError }}
+      </p>
+
+      <button
+        type="submit"
+        [disabled]="loading"
+      >
+        {{ loading ? 'Signing in...' : 'Login' }}
+      </button>
+
+    </form>
+
+  </div>
+
+</div>

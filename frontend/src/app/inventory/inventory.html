@@ -1,1 +1,605 @@
-<p>inventory works!</p>
+<div class="layout">
+
+  <!-- ========================= SIDEBAR ========================= -->
+
+  <aside class="sidebar">
+
+    <div class="brand">
+
+      <div class="brand-logo">
+        ISMS
+      </div>
+
+      <div class="brand-text">
+        <strong>Information Security</strong>
+        <span>Management & Reporting</span>
+      </div>
+
+    </div>
+
+
+    <nav>
+
+      <a
+        routerLink="/home"
+        routerLinkActive="active"
+        [routerLinkActiveOptions]="{ exact: true }"
+      >
+        <span class="nav-icon">⌂</span>
+        Home
+      </a>
+
+
+      <a
+        routerLink="/inventory"
+        routerLinkActive="active"
+      >
+        <span class="nav-icon">▣</span>
+        Asset Inventory
+      </a>
+
+
+      <a
+        routerLink="/risk-register"
+        routerLinkActive="active"
+      >
+        <span class="nav-icon">◇</span>
+        Risk Register
+      </a>
+
+
+      <a
+        routerLink="/audit"
+        routerLinkActive="active"
+      >
+        <span class="nav-icon">✓</span>
+        Audit
+      </a>
+
+
+      <a
+        routerLink="/findings"
+        routerLinkActive="active"
+      >
+        <span class="nav-icon">!</span>
+        Findings & CAPA
+      </a>
+
+
+      <a
+        routerLink="/reports"
+        routerLinkActive="active"
+      >
+        <span class="nav-icon">▤</span>
+        Reports
+      </a>
+
+    </nav>
+
+
+    <div class="bottom-nav">
+
+      <a
+        routerLink="/settings"
+        routerLinkActive="active"
+      >
+        <span class="nav-icon">⚙</span>
+        Settings
+      </a>
+
+
+      <a
+        class="logout-link"
+        (click)="logout()"
+      >
+        <span class="nav-icon">→</span>
+        Logout
+      </a>
+
+    </div>
+
+  </aside>
+
+
+
+  <!-- ========================= MAIN CONTENT ========================= -->
+
+  <main class="main">
+
+
+    <!-- HEADER -->
+
+    <header>
+
+      <div class="header-left">
+
+        <p class="breadcrumb">
+          Security Operations / Asset Management
+        </p>
+
+        <h1>
+          Asset Inventory
+        </h1>
+
+      </div>
+
+
+      <div class="user-area">
+
+        <span>
+          Welcome, {{ username || 'admin' }}
+        </span>
+
+        <button
+          type="button"
+          (click)="logout()"
+        >
+          Logout
+        </button>
+
+      </div>
+
+    </header>
+
+
+
+    <!-- ========================= PAGE CONTENT ========================= -->
+
+    <section class="content">
+
+
+      <!-- PAGE TITLE -->
+
+      <div class="page-title">
+
+        <div>
+
+          <h2>
+            Asset Inventory
+          </h2>
+
+          <p>
+            Computer assets discovered by the ISMS endpoint agent
+          </p>
+
+        </div>
+
+
+        <button
+          type="button"
+          class="refresh-btn"
+          (click)="loadAssets()"
+        >
+          ↻ Refresh
+        </button>
+
+      </div>
+
+
+
+      <!-- ========================= STAT CARDS ========================= -->
+
+      <div class="stats">
+
+
+        <!-- TOTAL ASSETS -->
+
+        <div class="stat-card">
+
+          <div class="stat-icon">
+            ◈
+          </div>
+
+          <div class="stat-content">
+
+            <span>
+              Total Assets
+            </span>
+
+            <strong>
+              {{ totalAssets }}
+            </strong>
+
+          </div>
+
+        </div>
+
+
+
+        <!-- WINDOWS ASSETS -->
+
+        <div class="stat-card">
+
+          <div class="stat-icon">
+            ▣
+          </div>
+
+          <div class="stat-content">
+
+            <span>
+              Windows Assets
+            </span>
+
+            <strong>
+              {{ windowsAssets }}
+            </strong>
+
+          </div>
+
+        </div>
+
+
+
+        <!-- ONLINE ASSETS -->
+
+        <div class="stat-card">
+
+          <div class="stat-icon">
+            ●
+          </div>
+
+          <div class="stat-content">
+
+            <span>
+              Online Assets
+            </span>
+
+            <strong>
+              {{ onlineAssets }}
+            </strong>
+
+          </div>
+
+        </div>
+
+
+
+        <!-- AGENT VERSION -->
+
+        <div class="stat-card">
+
+          <div class="stat-icon">
+            ◌
+          </div>
+
+          <div class="stat-content">
+
+            <span>
+              Agent Version
+            </span>
+
+            <strong>
+              {{ agentVersion }}
+            </strong>
+
+          </div>
+
+        </div>
+
+      </div>
+
+
+
+      <!-- ========================= ASSET SECTION ========================= -->
+
+      <div class="asset-section">
+
+
+        <!-- SECTION HEADER -->
+
+        <div class="asset-section-header">
+
+          <div>
+
+            <h2>
+              Discovered Assets
+            </h2>
+
+            <p>
+              Assets collected from connected endpoint systems
+            </p>
+
+          </div>
+
+
+          <div class="asset-count">
+
+            {{ totalAssets }} Assets
+
+          </div>
+
+        </div>
+
+
+
+        <!-- ========================= ERROR ========================= -->
+
+        <div
+          class="error"
+          *ngIf="error"
+        >
+
+          <strong>
+            Unable to load assets
+          </strong>
+
+          <p>
+            {{ error }}
+          </p>
+
+          <button
+            type="button"
+            (click)="loadAssets()"
+          >
+            Try Again
+          </button>
+
+        </div>
+
+
+
+        <!-- ========================= LOADING ========================= -->
+
+        <!--
+          IMPORTANT:
+          Loading is shown ONLY when there are no assets.
+          If assets.length is 3, the table will appear.
+        -->
+
+        <div
+          class="loading"
+          *ngIf="loading && assets.length === 0 && !error"
+        >
+
+          <div class="loading-spinner"></div>
+
+          <span>
+            Loading assets...
+          </span>
+
+        </div>
+
+
+
+        <!-- ========================= EMPTY ========================= -->
+
+        <div
+          class="empty"
+          *ngIf="!loading && assets.length === 0 && !error"
+        >
+
+          <div class="empty-icon">
+            ◫
+          </div>
+
+          <h3>
+            No assets found
+          </h3>
+
+          <p>
+            Run the Windows discovery agent to collect endpoint information.
+          </p>
+
+          <button
+            type="button"
+            class="refresh-btn"
+            (click)="loadAssets()"
+          >
+            Refresh
+          </button>
+
+        </div>
+
+
+
+        <!-- ========================= ASSET TABLE ========================= -->
+
+        <!--
+          IMPORTANT FIX:
+          Do NOT use:
+          *ngIf="!loading && assets.length > 0"
+
+          We only check assets.length.
+        -->
+
+        <div
+          class="table-container"
+          *ngIf="assets.length > 0"
+        >
+
+          <table>
+
+
+            <!-- TABLE HEADER -->
+
+            <thead>
+
+              <tr>
+
+                <th>
+                  ID
+                </th>
+
+                <th>
+                  HOSTNAME
+                </th>
+
+                <th>
+                  IP ADDRESS
+                </th>
+
+                <th>
+                  OPERATING SYSTEM
+                </th>
+
+                <th>
+                  HARDWARE
+                </th>
+
+                <th>
+                  NETWORK
+                </th>
+
+                <th>
+                  ACTION
+                </th>
+
+              </tr>
+
+            </thead>
+
+
+
+            <!-- TABLE BODY -->
+
+            <tbody>
+
+              <tr
+                *ngFor="let asset of assets"
+              >
+
+
+                <!-- ID -->
+
+                <td>
+
+                  <span class="asset-id">
+                    #{{ asset.id }}
+                  </span>
+
+                </td>
+
+
+
+                <!-- HOSTNAME -->
+
+                <td>
+
+                  <div class="hostname-cell">
+
+                    <div class="computer-icon">
+                      PC
+                    </div>
+
+
+                    <div class="hostname-info">
+
+                      <strong>
+                        {{ asset.hostname || 'Unknown' }}
+                      </strong>
+
+                      <small>
+                        Endpoint
+                      </small>
+
+                    </div>
+
+                  </div>
+
+                </td>
+
+
+
+                <!-- IP ADDRESS -->
+
+                <td>
+
+                  <span class="ip-address">
+
+                    {{ asset.ip_address || 'N/A' }}
+
+                  </span>
+
+                </td>
+
+
+
+                <!-- OPERATING SYSTEM -->
+
+                <td>
+
+                  <span class="os-badge">
+
+                    {{
+                      getOperatingSystem(asset)
+                    }}
+
+                  </span>
+
+                </td>
+
+
+
+                <!-- HARDWARE -->
+
+                <td>
+
+                  <div class="summary-cell">
+
+                    <strong>
+                      {{ getHardwareSummary(asset) }}
+                    </strong>
+
+                    <small>
+                      Hardware
+                    </small>
+
+                  </div>
+
+                </td>
+
+
+
+                <!-- NETWORK -->
+
+                <td>
+
+                  <div class="summary-cell">
+
+                    <strong>
+                      {{ getNetworkSummary(asset) }}
+                    </strong>
+
+                    <span>
+                      {{ getNetworkIP(asset) }}
+                    </span>
+
+                  </div>
+
+                </td>
+
+
+
+                <!-- ACTION -->
+
+                <td>
+
+                  <button
+                    type="button"
+                    class="view-btn"
+                    (click)="viewAsset(asset)"
+                  >
+                    View Details
+                  </button>
+
+                </td>
+
+
+              </tr>
+
+            </tbody>
+
+          </table>
+
+        </div>
+
+
+      </div>
+
+
+    </section>
+
+
+  </main>
+
+</div>

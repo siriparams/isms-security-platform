@@ -4,44 +4,76 @@ import { Login } from './login/login';
 import { Home } from './home/home';
 import { Inventory } from './inventory/inventory';
 import { Audit } from './audit/audit';
-import { authGuard } from './auth-guard';
+
 
 export const routes: Routes = [
 
-  // Login page
-  {
-    path: '',
-    redirectTo: 'login',
-    pathMatch: 'full'
-  },
+  // =====================================================
+  // LOGIN
+  // =====================================================
 
   {
     path: 'login',
     component: Login
   },
 
-  // Home page - JWT required
+
+  // =====================================================
+  // HOME
+  // =====================================================
+
   {
     path: 'home',
-    component: Home,
-    canActivate: [authGuard]
+    component: Home
   },
 
-  // Inventory page - JWT required
+
+  // =====================================================
+  // ASSET INVENTORY
+  // =====================================================
+
   {
     path: 'inventory',
-    component: Inventory,
-    canActivate: [authGuard]
+    component: Inventory
   },
 
-  // Audit page - JWT required
+
+  // =====================================================
+  // AUDIT DETAILS
+  // Example: /audit/3
+  // =====================================================
+
+  {
+    path: 'audit/:id',
+    component: Audit
+  },
+
+
+  // =====================================================
+  // AUDIT MAIN PAGE
+  // =====================================================
+
   {
     path: 'audit',
-    component: Audit,
-    canActivate: [authGuard]
+    component: Audit
   },
 
-  // Any unknown URL goes to login
+
+  // =====================================================
+  // DEFAULT
+  // =====================================================
+
+  {
+    path: '',
+    redirectTo: 'login',
+    pathMatch: 'full'
+  },
+
+
+  // =====================================================
+  // UNKNOWN URL
+  // =====================================================
+
   {
     path: '**',
     redirectTo: 'login'

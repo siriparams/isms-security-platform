@@ -1,0 +1,158 @@
+.layout {
+  display: flex;
+  min-height: 100vh;
+}
+
+.sidebar {
+  width: 250px;
+  background: #0d2948;
+  color: white;
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+}
+
+.brand {
+  height: 95px;
+  padding: 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.15);
+}
+
+.brand-logo {
+  background: white;
+  color: #123f70;
+  width: 45px;
+  height: 45px;
+  border-radius: 7px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-weight: bold;
+}
+
+.brand strong {
+  display: block;
+  font-size: 13px;
+}
+
+.brand span {
+  display: block;
+  font-size: 10px;
+  margin-top: 5px;
+}
+
+nav {
+  padding: 20px 12px;
+}
+
+nav a,
+.bottom-nav a {
+  display: block;
+  padding: 14px 18px;
+  margin-bottom: 5px;
+  color: #dce9f8;
+  text-decoration: none;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+nav a:hover,
+nav a.active {
+  background: #20578e;
+  color: white;
+}
+
+.bottom-nav {
+  margin-top: auto;
+  padding: 15px 12px;
+}
+
+.logout-link {
+  color: #ffb5b5 !important;
+}
+
+.main {
+  margin-left: 250px;
+  width: calc(100% - 250px);
+}
+
+header {
+  height: 95px;
+  background: white;
+  border-bottom: 1px solid #dce3eb;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 42px;
+}
+
+.breadcrumb {
+  color: #6580a0;
+  font-size: 12px;
+  margin: 0 0 6px;
+}
+
+h1 {
+  color: #12345b;
+  font-size: 22px;
+  margin: 0;
+}
+
+.user-area {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.user-area button {
+  background: #123f70;
+  color: white;
+  border: none;
+  padding: 11px 20px;
+  border-radius: 6px;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.content {
+  padding: 40px;
+}
+
+h2 {
+  color: #12345b;
+  margin-bottom: 8px;
+}
+
+.description {
+  color: #718096;
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 20px;
+  margin-top: 30px;
+}
+
+.card {
+  background: white;
+  padding: 25px;
+  border: 1px solid #dce3eb;
+  border-radius: 10px;
+}
+
+.card h3 {
+  color: #123f70;
+}
+
+.card p {
+  color: #718096;
+  line-height: 1.6;
+}
