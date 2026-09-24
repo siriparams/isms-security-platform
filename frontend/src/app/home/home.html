@@ -15,6 +15,7 @@
 
     </div>
 
+
     <nav>
 
       <a
@@ -52,6 +53,7 @@
 
     </nav>
 
+
     <div class="bottom-nav">
 
       <a>
@@ -86,13 +88,17 @@
 
       </div>
 
+
       <div class="user-area">
 
         <span>
           Welcome, {{ username }}
         </span>
 
-        <button (click)="logout()">
+        <button
+          type="button"
+          (click)="logout()"
+        >
           Logout
         </button>
 
@@ -112,34 +118,166 @@
       </p>
 
 
+      <!-- ================================================= -->
+      <!-- SECURITY ALERTS -->
+      <!-- ================================================= -->
+
+      <div class="alerts-section">
+
+        <div class="alerts-header">
+
+          <div>
+
+            <h2>
+              Security Alerts
+            </h2>
+
+            <p>
+              Real-time monitoring alerts from connected endpoint agents.
+            </p>
+
+          </div>
+
+
+          <div
+            class="alert-count"
+            [class.alert-count-danger]="getActiveAlerts().length > 0"
+          >
+            {{ getActiveAlerts().length }} Active
+          </div>
+
+        </div>
+
+
+        <!-- NO ALERTS -->
+
+        <div
+          class="no-alerts"
+          *ngIf="getActiveAlerts().length === 0"
+        >
+
+          <div class="alert-icon success">
+            ✓
+          </div>
+
+          <div>
+
+            <strong>
+              No active alerts
+            </strong>
+
+            <p>
+              All monitored endpoint agents are responding normally.
+            </p>
+
+          </div>
+
+        </div>
+
+
+        <!-- ACTIVE ALERTS -->
+
+        <div
+          class="alert-list"
+          *ngIf="getActiveAlerts().length > 0"
+        >
+
+          <div
+            class="alert-item"
+            *ngFor="let asset of getActiveAlerts()"
+          >
+
+            <div class="alert-icon warning">
+              !
+            </div>
+
+
+            <div class="alert-details">
+
+              <strong>
+                {{ asset.alert_status }}
+              </strong>
+
+              <span>
+                {{ asset.hostname || 'Unknown Device' }}
+              </span>
+
+              <small>
+                Last check-in:
+                {{ getLastCheckIn(asset) }}
+              </small>
+
+            </div>
+
+
+            <div class="alert-status">
+
+              {{ getAgentStatus(asset) }}
+
+            </div>
+
+          </div>
+
+        </div>
+
+      </div>
+
+
+      <!-- ================================================= -->
+      <!-- EXISTING CARDS -->
+      <!-- ================================================= -->
+
       <div class="cards">
 
         <div class="card">
-          <h3>Asset Management</h3>
+
+          <h3>
+            Asset Management
+          </h3>
+
           <p>
             Discover and manage system assets collected by the ISMS agents.
           </p>
+
         </div>
 
+
         <div class="card">
-          <h3>Risk Management</h3>
+
+          <h3>
+            Risk Management
+          </h3>
+
           <p>
             Identify and manage information security risks.
           </p>
+
         </div>
 
+
         <div class="card">
-          <h3>Audit Management</h3>
+
+          <h3>
+            Audit Management
+          </h3>
+
           <p>
             Track endpoint audits and security compliance activities.
           </p>
+
         </div>
 
+
         <div class="card">
-          <h3>Security Reporting</h3>
+
+          <h3>
+            Security Reporting
+          </h3>
+
           <p>
             View security information and management reports.
           </p>
+
         </div>
 
       </div>

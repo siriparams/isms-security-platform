@@ -48,6 +48,13 @@ interface Asset {
 
   created_at?: string | null;
 
+  // Heartbeat / agent status
+  online_status?: string | null;
+  alert_status?: string | null;
+  last_check_in?: string | null;
+  heartbeat_interval_seconds?: number | null;
+  agent_enabled?: boolean | null;
+
   [key: string]: any;
 }
 
@@ -393,53 +400,89 @@ export class Inventory implements OnInit {
     return this.assets.filter(
       (asset: Asset) => {
 
-
-        // -----------------------------------------------
-        // EXPLICIT ONLINE FIELD
-        // -----------------------------------------------
-
-        if (
-          asset['online'] === true
-        ) {
-
-          return true;
-
-        }
-
-
-        // -----------------------------------------------
-        // STATUS FIELD
-        // -----------------------------------------------
-
-        if (
-          String(
-            asset['status'] || ''
-          )
-            .toLowerCase() === 'online'
-        ) {
-
-          return true;
-
-        }
-
-
-        // -----------------------------------------------
-        // IP ADDRESS
-        // -----------------------------------------------
-
-        const ip =
-          this.getNetworkIP(asset);
-
-
-        return (
-          ip !== 'N/A' &&
-          ip !== 'Not collected' &&
-          ip.trim() !== ''
-        );
+        return String(
+          asset.online_status || ''
+        ).toUpperCase() === 'ONLINE';
 
       }
-
     ).length;
+
+  }
+
+
+  // =====================================================
+  // AGENT STATUS
+  // =====================================================
+
+  getAgentStatus(asset: Asset): string {
+
+    const status =
+      String(
+        asset.online_status || 'UNKNOWN'
+      ).toUpperCase();
+
+    if (status === 'ONLINE') {
+
+      return 'ONLINE';
+
+    }
+
+    if (
+      status === 'NOT_RESPONDING' ||
+      status === 'AGENT_NOT_RESPONDING'
+    ) {
+
+      return 'AGENT NOT RESPONDING';
+
+    }
+
+    if (status === 'AGENT_DISABLED') {
+
+      return 'AGENT DISABLED';
+
+    }
+
+    if (status === 'OFFLINE') {
+
+      return 'DEVICE OFFLINE';
+
+    }
+
+    return 'UNKNOWN';
+
+  }
+
+
+  // =====================================================
+  // LAST CHECK-IN
+  // =====================================================
+
+  getLastCheckIn(asset: Asset): string {
+
+    if (
+      !asset.last_check_in
+    ) {
+
+      return 'Never';
+
+    }
+
+    const date =
+      new Date(
+        asset.last_check_in
+      );
+
+    if (
+      Number.isNaN(
+        date.getTime()
+      )
+    ) {
+
+      return 'N/A';
+
+    }
+
+    return date.toLocaleString();
 
   }
 

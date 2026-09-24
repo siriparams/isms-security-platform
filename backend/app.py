@@ -5,6 +5,7 @@ from psycopg2.extras import Json
 import os
 import jwt
 import datetime
+import subprocess
 from functools import wraps
 from dotenv import load_dotenv
 
@@ -139,6 +140,20 @@ def initialize_database():
         cur.execute("""
             ALTER TABLE assets
             ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        """)
+
+        cur.execute("""
+            ALTER TABLE assets
+            ADD COLUMN IF NOT EXISTS machine_guid TEXT,
+            ADD COLUMN IF NOT EXISTS smbios_uuid TEXT,
+            ADD COLUMN IF NOT EXISTS agent_enabled BOOLEAN DEFAULT TRUE,
+            ADD COLUMN IF NOT EXISTS last_check_in TIMESTAMP WITH TIME ZONE,
+            ADD COLUMN IF NOT EXISTS heartbeat_interval_seconds INTEGER DEFAULT 300,
+            ADD COLUMN IF NOT EXISTS last_used TIMESTAMP WITH TIME ZONE,
+            ADD COLUMN IF NOT EXISTS last_status_change TIMESTAMP WITH TIME ZONE,
+            ADD COLUMN IF NOT EXISTS online_status TEXT DEFAULT 'UNKNOWN',
+            ADD COLUMN IF NOT EXISTS alert_status TEXT DEFAULT 'NONE',
+            ADD COLUMN IF NOT EXISTS device_last_seen TIMESTAMP WITH TIME ZONE
         """)
 
         # -------------------------------------------------
@@ -383,217 +398,313 @@ def receive_agent_asset():
 
     try:
 
-        # -------------------------------------------------
-        # CHECK AGENT API KEY
-        # -------------------------------------------------
-
-        api_key = request.headers.get(
-            "X-Agent-API-Key"
-        )
+        api_key = request.headers.get("X-Agent-API-Key")
 
         if not api_key:
-
             return jsonify({
                 "success": False,
                 "message": "Agent API key is missing"
             }), 401
 
         if api_key != AGENT_API_KEY:
-
             return jsonify({
                 "success": False,
                 "message": "Invalid agent API key"
             }), 401
 
-        # -------------------------------------------------
-        # READ JSON
-        # -------------------------------------------------
-
-        data = request.get_json(
-            force=True,
-            silent=False
-        )
+        data = request.get_json(force=True, silent=False)
 
         if not data:
-
             return jsonify({
                 "success": False,
                 "message": "JSON data is missing"
             }), 400
 
-        print("")
-        print("============================================")
-        print("Asset received from agent")
-        print("============================================")
+        device_identity = data.get("device_identity", {})
+        host_identity = data.get("host_identity", {})
+        hardware = data.get("hardware", {})
+        network = data.get("network", [])
+        os_info = data.get("os", {})
+        management = data.get("management", [])
+        security = data.get("security_posture", {})
+        software = data.get("software", [])
+        user_context = data.get("user_context", {})
 
-        # -------------------------------------------------
-        # EXTRACT DATA
-        # -------------------------------------------------
+        machine_guid = device_identity.get("Machine_GUID")
+        smbios_uuid = device_identity.get("SMBIOS_UUID")
 
-        device_identity = data.get(
-            "device_identity",
-            {}
-        )
-
-        host_identity = data.get(
-            "host_identity",
-            {}
-        )
-
-        hardware = data.get(
-            "hardware",
-            {}
-        )
-
-        network = data.get(
-            "network",
-            []
-        )
-
-        os_info = data.get(
-            "os",
-            {}
-        )
-
-        management = data.get(
-            "management",
-            []
-        )
-
-        security = data.get(
-            "security_posture",
-            {}
-        )
-
-        software = data.get(
-            "software",
-            []
-        )
-
-        user_context = data.get(
-            "user_context",
-            {}
-        )
-
-        # -------------------------------------------------
-        # IMPORTANT:
-        # IP ADDRESS IS NOT STORED
-        # -------------------------------------------------
-
-        ip_address = None
-
-        # -------------------------------------------------
-        # DATABASE
-        # -------------------------------------------------
+        if not machine_guid or not smbios_uuid:
+            return jsonify({
+                "success": False,
+                "message": "Machine GUID and SMBIOS UUID are required"
+            }), 400
 
         conn = get_db_connection()
         cur = conn.cursor()
 
+        # Same machine = same GUID + SMBIOS UUID.
+        # Update the existing asset instead of creating a duplicate.
         cur.execute(
             """
-            INSERT INTO assets
-            (
-                hostname,
-                ip_address,
-                operating_system,
-                hardware,
-                network,
-                software,
-                management,
-                security_posture,
-                user_context,
-                device_identity,
-                host_identity,
-                discovery_timestamp,
-                platform,
-                agent_version
-            )
-            VALUES
-            (
-                %s,
-                %s,
-                %s,
-                %s,
-                %s,
-                %s,
-                %s,
-                %s,
-                %s,
-                %s,
-                %s,
-                %s,
-                %s,
-                %s
-            )
-            RETURNING id
+            SELECT id
+            FROM assets
+            WHERE machine_guid = %s
+              AND smbios_uuid = %s
+            LIMIT 1
             """,
-            (
-                host_identity.get("Hostname"),
-
-                ip_address,
-
-                Json(os_info),
-
-                Json(hardware),
-
-                Json(network),
-
-                Json(software),
-
-                Json(management),
-
-                Json(security),
-
-                Json(user_context),
-
-                Json(device_identity),
-
-                Json(host_identity),
-
-                data.get(
-                    "discovery_timestamp"
-                ),
-
-                data.get(
-                    "platform"
-                ),
-
-                data.get(
-                    "agent_version",
-                    "1.0.0"
-                )
-            )
+            (machine_guid, smbios_uuid)
         )
 
-        asset_id = cur.fetchone()[0]
+        existing = cur.fetchone()
+
+        if existing:
+            asset_id = existing[0]
+
+            cur.execute(
+                """
+                UPDATE assets
+                SET
+                    hostname = %s,
+                    operating_system = %s,
+                    hardware = %s,
+                    network = %s,
+                    software = %s,
+                    management = %s,
+                    security_posture = %s,
+                    user_context = %s,
+                    device_identity = %s,
+                    host_identity = %s,
+                    discovery_timestamp = %s,
+                    platform = %s,
+                    agent_version = %s
+                WHERE id = %s
+                """,
+                (
+                    host_identity.get("Hostname"),
+                    Json(os_info),
+                    Json(hardware),
+                    Json(network),
+                    Json(software),
+                    Json(management),
+                    Json(security),
+                    Json(user_context),
+                    Json(device_identity),
+                    Json(host_identity),
+                    data.get("discovery_timestamp"),
+                    data.get("platform"),
+                    data.get("agent_version", "1.0.0"),
+                    asset_id
+                )
+            )
+
+            action = "updated"
+
+        else:
+            cur.execute(
+                """
+                INSERT INTO assets
+                (
+                    hostname,
+                    ip_address,
+                    operating_system,
+                    hardware,
+                    network,
+                    software,
+                    management,
+                    security_posture,
+                    user_context,
+                    device_identity,
+                    host_identity,
+                    discovery_timestamp,
+                    platform,
+                    agent_version,
+                    machine_guid,
+                    smbios_uuid,
+                    agent_enabled,
+                    last_check_in,
+                    heartbeat_interval_seconds,
+                    last_status_change,
+                    online_status,
+                    alert_status
+                )
+                VALUES
+                (
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, TRUE, NOW(), 300, NOW(), 'ONLINE', 'NONE'
+                )
+                RETURNING id
+                """,
+                (
+                    host_identity.get("Hostname"),
+                    None,
+                    Json(os_info),
+                    Json(hardware),
+                    Json(network),
+                    Json(software),
+                    Json(management),
+                    Json(security),
+                    Json(user_context),
+                    Json(device_identity),
+                    Json(host_identity),
+                    data.get("discovery_timestamp"),
+                    data.get("platform"),
+                    data.get("agent_version", "1.0.0"),
+                    machine_guid,
+                    smbios_uuid
+                )
+            )
+
+            asset_id = cur.fetchone()[0]
+            action = "created"
 
         conn.commit()
-
         cur.close()
         conn.close()
 
-        print(
-            f"Asset stored successfully. ID: {asset_id}"
-        )
-
         return jsonify({
             "success": True,
-            "message": "Agent asset received successfully",
-            "asset_id": asset_id
+            "message": f"Agent asset {action} successfully",
+            "asset_id": asset_id,
+            "action": action
         }), 201
 
     except Exception as e:
 
-        print(
-            "Agent upload error:",
-            str(e)
-        )
+        print("Agent upload error:", str(e))
 
         return jsonify({
             "success": False,
             "message": "Failed to process agent asset",
             "error": str(e)
         }), 500
+
+
+# =========================================================
+# RECEIVE AGENT HEARTBEAT
+# =========================================================
+
+@app.route(
+    "/agent/heartbeat",
+    methods=["POST"]
+)
+def receive_agent_heartbeat():
+
+    try:
+
+        api_key = request.headers.get("X-Agent-API-Key")
+
+        if api_key != AGENT_API_KEY:
+            return jsonify({
+                "success": False,
+                "message": "Invalid agent API key"
+            }), 401
+
+        data = request.get_json(force=True, silent=False)
+
+        machine_guid = data.get("machine_guid")
+        smbios_uuid = data.get("smbios_uuid")
+        agent_version = data.get("agent_version", "1.0.0")
+        last_used_value = data.get("last_used")
+
+        if not machine_guid or not smbios_uuid:
+            return jsonify({
+                "success": False,
+                "message": "Machine GUID and SMBIOS UUID are required"
+            }), 400
+
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        cur.execute(
+            """
+            UPDATE assets
+            SET
+                agent_enabled = TRUE,
+                last_check_in = NOW(),
+                heartbeat_interval_seconds = 300,
+                last_used = %s,
+                online_status = 'ONLINE',
+                alert_status = 'NONE',
+                last_status_change = CASE
+                    WHEN online_status <> 'ONLINE'
+                         OR online_status IS NULL
+                    THEN NOW()
+                    ELSE last_status_change
+                END,
+                agent_version = %s
+            WHERE machine_guid = %s
+              AND smbios_uuid = %s
+            RETURNING id
+            """,
+            (last_used_value, agent_version, machine_guid, smbios_uuid)
+        )
+
+        result = cur.fetchone()
+
+        if not result:
+            conn.rollback()
+            cur.close()
+            conn.close()
+
+            return jsonify({
+                "success": False,
+                "message": "Asset not registered. Run asset discovery first."
+            }), 404
+
+        asset_id = result[0]
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        return jsonify({
+            "success": True,
+            "message": "Heartbeat received",
+            "asset_id": asset_id,
+            "online_status": "ONLINE"
+        }), 200
+
+    except Exception as e:
+
+        print("Heartbeat error:", str(e))
+
+        return jsonify({
+            "success": False,
+            "message": "Failed to process heartbeat",
+            "error": str(e)
+        }), 500
+
+
+# =========================================================
+# DEVICE REACHABILITY
+# =========================================================
+
+def check_device_reachable(hostname):
+    """
+    Simple independent device reachability check.
+
+    This is separate from the agent heartbeat:
+    - heartbeat tells us whether the agent is responding
+    - ping tells us whether the device itself is reachable on the network
+
+    This is useful for distinguishing:
+    DEVICE REACHABLE + AGENT NOT RESPONDING
+    from:
+    DEVICE NOT REACHABLE
+    """
+    if not hostname:
+        return False
+
+    try:
+        result = subprocess.run(
+            ["ping", "-n", "1", "-w", "1000", str(hostname)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=2
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
 
 
 # =========================================================
@@ -629,56 +740,152 @@ def get_assets():
                 discovery_timestamp,
                 platform,
                 agent_version,
-                created_at
+                created_at,
+                machine_guid,
+                smbios_uuid,
+                agent_enabled,
+                last_check_in,
+                heartbeat_interval_seconds,
+                last_used,
+                last_status_change,
+                online_status,
+                alert_status,
+                device_last_seen
             FROM assets
             ORDER BY id DESC
             """
         )
 
         rows = cur.fetchall()
-
         assets = []
 
         for row in rows:
 
+            (
+                asset_id,
+                hostname,
+                operating_system,
+                hardware,
+                network,
+                software,
+                management,
+                security_posture,
+                user_context,
+                device_identity,
+                host_identity,
+                discovery_timestamp,
+                platform,
+                agent_version,
+                created_at,
+                machine_guid,
+                smbios_uuid,
+                agent_enabled,
+                last_check_in,
+                heartbeat_interval_seconds,
+                last_used,
+                last_status_change,
+                online_status,
+                alert_status,
+                device_last_seen
+            ) = row
+
+            status = online_status or "UNKNOWN"
+            alert = alert_status or "NONE"
+
+            # Independent device reachability check.
+            # This does NOT use the heartbeat.
+            device_reachable = check_device_reachable(hostname)
+
+            if device_reachable:
+                device_last_seen = datetime.datetime.now(
+                    datetime.timezone.utc
+                )
+
+                cur.execute(
+                    """
+                    UPDATE assets
+                    SET device_last_seen = %s
+                    WHERE id = %s
+                    """,
+                    (device_last_seen, asset_id)
+                )
+
+            if agent_enabled is False:
+                status = "AGENT_DISABLED"
+                alert = "AGENT_DISABLED"
+
+            elif last_check_in is None:
+                if device_reachable:
+                    status = "AGENT_NOT_RESPONDING"
+                    alert = "AGENT_NOT_RESPONDING"
+                else:
+                    status = "OFFLINE"
+                    alert = "DEVICE_OFFLINE"
+
+            else:
+                allowed_seconds = (heartbeat_interval_seconds or 300) * 2
+                age_seconds = (
+                    datetime.datetime.now(datetime.timezone.utc)
+                    - last_check_in
+                ).total_seconds()
+
+                if age_seconds <= allowed_seconds:
+                    status = "ONLINE"
+                    alert = "NONE"
+
+                elif device_reachable:
+                    status = "AGENT_NOT_RESPONDING"
+                    alert = "AGENT_NOT_RESPONDING"
+
+                else:
+                    status = "OFFLINE"
+                    alert = "DEVICE_OFFLINE"
+
             assets.append({
-
-                "id": row[0],
-
-                "hostname": row[1],
-
-                "operating_system": row[2],
-
-                "hardware": row[3],
-
-                "network": row[4],
-
-                "software": row[5],
-
-                "management": row[6],
-
-                "security_posture": row[7],
-
-                "user_context": row[8],
-
-                "device_identity": row[9],
-
-                "host_identity": row[10],
-
+                "id": asset_id,
+                "hostname": hostname,
+                "operating_system": operating_system,
+                "hardware": hardware,
+                "network": network,
+                "software": software,
+                "management": management,
+                "security_posture": security_posture,
+                "user_context": user_context,
+                "device_identity": device_identity,
+                "host_identity": host_identity,
                 "discovery_timestamp": (
-                    row[11].isoformat()
-                    if row[11]
-                    else None
+                    discovery_timestamp.isoformat()
+                    if discovery_timestamp else None
                 ),
-
-                "platform": row[12],
-
-                "agent_version": row[13],
-
+                "platform": platform,
+                "agent_version": agent_version,
                 "created_at": (
-                    row[14].isoformat()
-                    if row[14]
-                    else None
+                    created_at.isoformat()
+                    if created_at else None
+                ),
+                "machine_guid": machine_guid,
+                "smbios_uuid": smbios_uuid,
+                "agent_enabled": agent_enabled,
+                "last_check_in": (
+                    last_check_in.isoformat()
+                    if last_check_in else None
+                ),
+                "heartbeat_interval_seconds":
+                    heartbeat_interval_seconds,
+                "last_used": (
+                    last_used.isoformat()
+                    if last_used else None
+                ),
+                "last_status_change": (
+                    last_status_change.isoformat()
+                    if last_status_change else None
+                ),
+                "online_status": status,
+                "alert_status": alert,
+                "device_reachable": device_reachable,
+                "device_last_seen": (
+                    device_last_seen.isoformat()
+                    if device_last_seen else None
                 )
             })
 
@@ -689,10 +896,7 @@ def get_assets():
 
     except Exception as e:
 
-        print(
-            "Get assets error:",
-            e
-        )
+        print("Get assets error:", e)
 
         return jsonify({
             "success": False,

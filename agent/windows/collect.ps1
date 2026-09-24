@@ -11,6 +11,8 @@ $ErrorActionPreference = "Continue"
 $AgentVersion = "1.0.0"
 
 $ServerUrl = "http://127.0.0.1:5000/agent/assets"
+$HeartbeatUrl = "http://127.0.0.1:5000/agent/heartbeat"
+$HeartbeatIntervalSeconds = 300
 
 $AgentApiKey = "isms_agent_2026_secure_key"
 
@@ -30,6 +32,48 @@ function Invoke-Safe {
     }
     catch {
         return $null
+    }
+}
+
+# ------------------------------------------------------------
+# HEARTBEAT
+# ------------------------------------------------------------
+
+function Send-Heartbeat {
+    param (
+        [string]$MachineGuid,
+        [string]$SmbiosUuid
+    )
+
+    try {
+
+        $heartbeat = [ordered]@{
+            machine_guid = $MachineGuid
+            smbios_uuid = $SmbiosUuid
+            agent_version = $AgentVersion
+            timestamp = (Get-Date).ToUniversalTime().ToString("o")
+            last_used = (Get-Date).ToUniversalTime().ToString("o")
+        }
+
+        $heartbeatJson = $heartbeat | ConvertTo-Json -Depth 10
+
+        $headers = @{
+            "X-Agent-API-Key" = $AgentApiKey
+        }
+
+        $response = Invoke-RestMethod `
+            -Uri $HeartbeatUrl `
+            -Method Post `
+            -Headers $headers `
+            -Body $heartbeatJson `
+            -ContentType "application/json"
+
+        Write-Host "Heartbeat: $($response.online_status)"
+        return $true
+    }
+    catch {
+        Write-Host "Heartbeat failed: $($_.Exception.Message)"
+        return $false
     }
 }
 
@@ -826,39 +870,51 @@ try {
         -ContentType "application/json"
 
     Write-Host ""
-    Write-Host "============================================"
-    Write-Host " Asset sent successfully"
-    Write-Host "============================================"
-    Write-Host ""
+    Write-Host "Asset sent successfully."
 
     if ($response) {
-
-        Write-Host "Server response:"
-
-        $response |
-            ConvertTo-Json -Depth 10 |
-            Write-Host
+        $response | ConvertTo-Json -Depth 10 | Write-Host
     }
 }
 catch {
 
-    Write-Host ""
-    Write-Host "============================================"
-    Write-Host " Failed to send asset to ISMS server"
-    Write-Host "============================================"
-    Write-Host ""
+    Write-Host "Failed to send asset to ISMS server."
 
     if ($_.ErrorDetails.Message) {
-
         Write-Host $_.ErrorDetails.Message
     }
     else {
-
         Write-Host $_.Exception.Message
     }
 
-    Write-Host ""
-    Write-Host "Make sure Flask is running at:"
-    Write-Host $ServerUrl
-    Write-Host ""
+    exit 1
+}
+
+# ============================================================
+# CONTINUOUS HEARTBEAT
+# ============================================================
+
+$machineGuidForHeartbeat = $deviceIdentity.Machine_GUID
+$smbiosUuidForHeartbeat = $deviceIdentity.SMBIOS_UUID
+
+if (-not $machineGuidForHeartbeat -or -not $smbiosUuidForHeartbeat) {
+    Write-Host "ERROR: Machine GUID or SMBIOS UUID is missing."
+    exit 1
+}
+
+Write-Host ""
+Write-Host "============================================"
+Write-Host " ISMS Heartbeat started"
+Write-Host "============================================"
+Write-Host "Heartbeat interval: $HeartbeatIntervalSeconds seconds"
+Write-Host "Press Ctrl+C to stop."
+Write-Host ""
+
+while ($true) {
+
+    Send-Heartbeat `
+        -MachineGuid $machineGuidForHeartbeat `
+        -SmbiosUuid $smbiosUuidForHeartbeat
+
+    Start-Sleep -Seconds $HeartbeatIntervalSeconds
 }

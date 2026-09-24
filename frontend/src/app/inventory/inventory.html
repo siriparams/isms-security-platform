@@ -441,6 +441,14 @@
                 </th>
 
                 <th>
+                  STATUS
+                </th>
+
+                <th>
+                  LAST CHECK-IN
+                </th>
+
+                <th>
                   ACTION
                 </th>
 
@@ -568,6 +576,51 @@
 
                 </td>
 
+
+
+                <!-- STATUS -->
+
+                <td>
+
+                  <span
+                    class="status-badge"
+                    [class.status-online]="asset.online_status === 'ONLINE'"
+                    [class.status-warning]="
+                      asset.online_status === 'NOT_RESPONDING' ||
+                      asset.online_status === 'AGENT_NOT_RESPONDING'
+                    "
+                    [class.status-disabled]="
+                      asset.online_status === 'AGENT_DISABLED' ||
+                      asset.online_status === 'OFFLINE'
+                    " 
+                  >
+                    {{ getAgentStatus(asset) }}
+                  </span>
+
+                  <small>
+                    {{ asset.alert_status || 'NONE' }}
+                  </small>
+
+                </td>
+
+
+                <!-- LAST CHECK-IN -->
+
+                <td>
+
+                  <div class="summary-cell">
+
+                    <strong>
+                      {{ getLastCheckIn(asset) }}
+                    </strong>
+
+                    <small>
+                      Heartbeat
+                    </small>
+
+                  </div>
+
+                </td>
 
 
                 <!-- ACTION -->
