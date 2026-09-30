@@ -5,7 +5,7 @@
 $ErrorActionPreference = "Continue"
 
 # ------------------------------------------------------------
-# CONFIGURATION
+# CONFIGURATIONS
 # ------------------------------------------------------------
 
 $AgentVersion = "1.0.0"
