@@ -155,7 +155,51 @@ def initialize_database():
             ADD COLUMN IF NOT EXISTS alert_status TEXT DEFAULT 'NONE',
             ADD COLUMN IF NOT EXISTS device_last_seen TIMESTAMP WITH TIME ZONE
         """)
+        # -------------------------------------------------
+        # AUDITS TABLE
+        # -------------------------------------------------
 
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS audits (
+                id SERIAL PRIMARY KEY,
+                audit_id TEXT UNIQUE NOT NULL,
+                asset_id INTEGER,
+                hostname TEXT,
+                machine_guid TEXT,
+                smbios_uuid TEXT,
+                operating_system TEXT,
+                os_version TEXT,
+                audit_profile TEXT,
+                compliance_standard TEXT,
+                audit_timestamp TIMESTAMP WITH TIME ZONE,
+                overall_score INTEGER,
+                passed_count INTEGER,
+                failed_count INTEGER,
+                total_checks INTEGER,
+                status TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # -------------------------------------------------
+        # AUDIT CHECKS TABLE
+        # -------------------------------------------------
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS audit_checks (
+                id SERIAL PRIMARY KEY,
+                audit_id TEXT NOT NULL,
+                check_id TEXT,
+                check_name TEXT,
+                category TEXT,
+                expected_value TEXT,
+                observed_value TEXT,
+                status TEXT,
+                severity TEXT,
+                evidence TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
         # -------------------------------------------------
         # CREATE ADMIN USER IF NOT PRESENT
         # -------------------------------------------------
@@ -674,6 +718,621 @@ def receive_agent_heartbeat():
             "error": str(e)
         }), 500
 
+# =========================================================
+# RECEIVE ENDPOINT AUDIT
+# =========================================================
+
+@app.route(
+    "/agent/audit",
+    methods=["POST"]
+)
+def receive_agent_audit():
+
+    try:
+
+        # -------------------------------------------------
+        # CHECK AGENT API KEY
+        # -------------------------------------------------
+
+        api_key = request.headers.get("X-Agent-API-Key")
+
+        if api_key != AGENT_API_KEY:
+
+            return jsonify({
+                "success": False,
+                "message": "Invalid agent API key"
+            }), 401
+
+        # -------------------------------------------------
+        # READ JSON
+        # -------------------------------------------------
+
+        data = request.get_json(
+            force=True,
+            silent=False
+        )
+
+        if not data:
+
+            return jsonify({
+                "success": False,
+                "message": "Audit JSON data is missing"
+            }), 400
+
+        # -------------------------------------------------
+        # GET AUDIT INFORMATION
+        # -------------------------------------------------
+
+        audit_id = data.get("audit_id")
+        hostname = data.get("hostname")
+        machine_guid = data.get("machine_guid")
+        smbios_uuid = data.get("smbios_uuid")
+
+        if not audit_id:
+            return jsonify({
+                "success": False,
+                "message": "audit_id is required"
+            }), 400
+
+        if not machine_guid or not smbios_uuid:
+            return jsonify({
+                "success": False,
+                "message": "Machine GUID and SMBIOS UUID are required"
+            }), 400
+
+        # -------------------------------------------------
+        # CONNECT DATABASE
+        # -------------------------------------------------
+
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # -------------------------------------------------
+        # FIND ASSET
+        # -------------------------------------------------
+
+        cur.execute(
+            """
+            SELECT id
+            FROM assets
+            WHERE machine_guid = %s
+              AND smbios_uuid = %s
+            LIMIT 1
+            """,
+            (
+                machine_guid,
+                smbios_uuid
+            )
+        )
+
+        asset = cur.fetchone()
+
+        if not asset:
+
+            conn.rollback()
+            cur.close()
+            conn.close()
+
+            return jsonify({
+                "success": False,
+                "message": "Asset not found. Run asset discovery first."
+            }), 404
+
+        asset_id = asset[0]
+
+        # -------------------------------------------------
+        # INSERT AUDIT
+        # -------------------------------------------------
+
+        cur.execute(
+            """
+            INSERT INTO audits
+            (
+                audit_id,
+                asset_id,
+                hostname,
+                machine_guid,
+                smbios_uuid,
+                operating_system,
+                os_version,
+                audit_profile,
+                compliance_standard,
+                audit_timestamp,
+                overall_score,
+                passed_count,
+                failed_count,
+                total_checks,
+                status
+            )
+            VALUES
+            (
+                %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s, %s, %s
+            )
+            ON CONFLICT (audit_id)
+            DO UPDATE SET
+                asset_id = EXCLUDED.asset_id,
+                hostname = EXCLUDED.hostname,
+                operating_system = EXCLUDED.operating_system,
+                os_version = EXCLUDED.os_version,
+                audit_profile = EXCLUDED.audit_profile,
+                compliance_standard = EXCLUDED.compliance_standard,
+                audit_timestamp = EXCLUDED.audit_timestamp,
+                overall_score = EXCLUDED.overall_score,
+                passed_count = EXCLUDED.passed_count,
+                failed_count = EXCLUDED.failed_count,
+                total_checks = EXCLUDED.total_checks,
+                status = EXCLUDED.status
+            """,
+            (
+                audit_id,
+                asset_id,
+                hostname,
+                machine_guid,
+                smbios_uuid,
+                data.get("operating_system"),
+                data.get("os_version"),
+                data.get("audit_profile"),
+                data.get("compliance_standard"),
+                data.get("audit_timestamp"),
+                data.get("overall_score"),
+                data.get("passed_count"),
+                data.get("failed_count"),
+                data.get("total_checks"),
+                data.get("status")
+            )
+        )
+
+        # -------------------------------------------------
+        # REMOVE OLD CHECKS FOR THIS AUDIT
+        # -------------------------------------------------
+
+        cur.execute(
+            """
+            DELETE FROM audit_checks
+            WHERE audit_id = %s
+            """,
+            (audit_id,)
+        )
+
+        # -------------------------------------------------
+        # INSERT AUDIT CHECKS
+        # -------------------------------------------------
+
+        checks = data.get("checks", [])
+
+        for check in checks:
+
+            cur.execute(
+                """
+                INSERT INTO audit_checks
+                (
+                    audit_id,
+                    check_id,
+                    check_name,
+                    category,
+                    expected_value,
+                    observed_value,
+                    status,
+                    severity,
+                    evidence
+                )
+                VALUES
+                (
+                    %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s
+                )
+                """,
+                (
+                    audit_id,
+                    check.get("check_id"),
+                    check.get("check_name"),
+                    check.get("category"),
+                    check.get("expected_value"),
+                    check.get("observed_value"),
+                    check.get("status"),
+                    check.get("severity"),
+                    check.get("evidence", "")
+                )
+            )
+
+        # -------------------------------------------------
+        # SAVE
+        # -------------------------------------------------
+
+        conn.commit()
+
+        cur.close()
+        conn.close()
+
+        return jsonify({
+            "success": True,
+            "message": "Endpoint audit received successfully",
+            "audit_id": audit_id,
+            "asset_id": asset_id,
+            "checks_received": len(checks),
+            "overall_score": data.get("overall_score"),
+            "status": data.get("status")
+        }), 201
+
+    except Exception as e:
+
+        print("Audit upload error:", str(e))
+
+        return jsonify({
+            "success": False,
+            "message": "Failed to process endpoint audit",
+            "error": str(e)
+        }), 500
+
+# =========================================================
+# GET LATEST AUDIT FOR AN ASSET
+# =========================================================
+
+@app.route(
+    "/audits/<int:asset_id>",
+    methods=["GET"]
+)
+@token_required
+def get_latest_audit(asset_id):
+
+    try:
+
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # -------------------------------------------------
+        # GET LATEST AUDIT
+        # -------------------------------------------------
+
+        cur.execute(
+            """
+            SELECT
+                audit_id,
+                asset_id,
+                hostname,
+                operating_system,
+                os_version,
+                audit_profile,
+                compliance_standard,
+                audit_timestamp,
+                overall_score,
+                passed_count,
+                failed_count,
+                total_checks,
+                status
+            FROM audits
+            WHERE asset_id = %s
+            ORDER BY audit_timestamp DESC, id DESC
+            LIMIT 1
+            """,
+            (asset_id,)
+        )
+
+        audit = cur.fetchone()
+
+        if not audit:
+
+            cur.close()
+            conn.close()
+
+            return jsonify({
+                "success": False,
+                "message": "No audit result found for this asset"
+            }), 404
+
+
+        (
+            audit_id,
+            asset_id,
+            hostname,
+            operating_system,
+            os_version,
+            audit_profile,
+            compliance_standard,
+            audit_timestamp,
+            overall_score,
+            passed_count,
+            failed_count,
+            total_checks,
+            status
+        ) = audit
+
+
+        # -------------------------------------------------
+        # GET AUDIT CHECKS
+        # -------------------------------------------------
+
+        cur.execute(
+            """
+            SELECT
+                id,
+                audit_id,
+                check_id,
+                check_name,
+                category,
+                expected_value,
+                observed_value,
+                status,
+                severity,
+                evidence
+            FROM audit_checks
+            WHERE audit_id = %s
+            ORDER BY id ASC
+            """,
+            (audit_id,)
+        )
+
+        check_rows = cur.fetchall()
+
+
+        checks = []
+
+        for row in check_rows:
+
+            (
+                check_db_id,
+                check_audit_id,
+                check_id,
+                check_name,
+                category,
+                expected_value,
+                observed_value,
+                check_status,
+                severity,
+                evidence
+            ) = row
+
+            checks.append({
+
+                "id": check_db_id,
+
+                "audit_id": check_audit_id,
+
+                "check_id": check_id,
+
+                "check_name": check_name,
+
+                "category": category,
+
+                "expected_value": expected_value,
+
+                "observed_value": observed_value,
+
+                "status": check_status,
+
+                "severity": severity,
+
+                "evidence": evidence
+
+            })
+
+
+        cur.close()
+        conn.close()
+
+
+        # -------------------------------------------------
+        # RETURN RESULT
+        # -------------------------------------------------
+
+        return jsonify({
+
+            "success": True,
+
+            "audit_id": audit_id,
+
+            "asset_id": asset_id,
+
+            "hostname": hostname,
+
+            "operating_system": operating_system,
+
+            "os_version": os_version,
+
+            "audit_profile": audit_profile,
+
+            "compliance_standard": compliance_standard,
+
+            "audit_timestamp": audit_timestamp.isoformat()
+                if audit_timestamp else None,
+
+            "overall_score": overall_score,
+
+            "passed_count": passed_count,
+
+            "failed_count": failed_count,
+
+            "total_checks": total_checks,
+
+            "status": status,
+
+            "checks": checks
+
+        }), 200
+
+
+    except Exception as e:
+
+        print(
+            "Get audit error:",
+            str(e)
+        )
+
+        return jsonify({
+
+            "success": False,
+
+            "message":
+                "Failed to retrieve audit result",
+
+            "error":
+                str(e)
+
+        }), 500
+
+# =========================================================
+# GET LATEST AUDIT RESULT FOR AN ASSET
+# =========================================================
+
+@app.route(
+    "/audits/<int:asset_id>",
+    methods=["GET"]
+)
+@token_required
+def get_latest_audit(asset_id):
+
+    try:
+
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # -------------------------------------------------
+        # GET LATEST AUDIT
+        # -------------------------------------------------
+
+        cur.execute(
+            """
+            SELECT
+                audit_id,
+                asset_id,
+                hostname,
+                operating_system,
+                os_version,
+                audit_profile,
+                compliance_standard,
+                audit_timestamp,
+                overall_score,
+                passed_count,
+                failed_count,
+                total_checks,
+                status
+            FROM audits
+            WHERE asset_id = %s
+            ORDER BY
+                audit_timestamp DESC NULLS LAST,
+                id DESC
+            LIMIT 1
+            """,
+            (asset_id,)
+        )
+
+        audit = cur.fetchone()
+
+        if not audit:
+
+            cur.close()
+            conn.close()
+
+            return jsonify({
+                "success": False,
+                "message": "No audit result found for this endpoint"
+            }), 404
+
+        audit_id = audit[0]
+
+        # -------------------------------------------------
+        # GET AUDIT CHECKS
+        # -------------------------------------------------
+
+        cur.execute(
+            """
+            SELECT
+                id,
+                audit_id,
+                check_id,
+                check_name,
+                category,
+                expected_value,
+                observed_value,
+                status,
+                severity,
+                evidence
+            FROM audit_checks
+            WHERE audit_id = %s
+            ORDER BY id
+            """,
+            (audit_id,)
+        )
+
+        check_rows = cur.fetchall()
+
+        checks = []
+
+        for row in check_rows:
+
+            checks.append({
+                "id": row[0],
+                "audit_id": row[1],
+                "check_id": row[2],
+                "check_name": row[3],
+                "category": row[4],
+                "expected_value": row[5],
+                "observed_value": row[6],
+                "status": row[7],
+                "severity": row[8],
+                "evidence": row[9]
+            })
+
+        # -------------------------------------------------
+        # CLOSE DATABASE
+        # -------------------------------------------------
+
+        cur.close()
+        conn.close()
+
+        # -------------------------------------------------
+        # RETURN RESULT
+        # -------------------------------------------------
+
+        return jsonify({
+
+            "audit_id": audit[0],
+
+            "asset_id": audit[1],
+
+            "hostname": audit[2],
+
+            "operating_system": audit[3],
+
+            "os_version": audit[4],
+
+            "audit_profile": audit[5],
+
+            "compliance_standard": audit[6],
+
+            "audit_timestamp": (
+                audit[7].isoformat()
+                if audit[7]
+                else None
+            ),
+
+            "overall_score": audit[8],
+
+            "passed_count": audit[9],
+
+            "failed_count": audit[10],
+
+            "total_checks": audit[11],
+
+            "status": audit[12],
+
+            "checks": checks
+
+        }), 200
+
+    except Exception as e:
+
+        print(
+            "Get audit result error:",
+            str(e)
+        )
+
+        return jsonify({
+            "success": False,
+            "message": "Failed to load audit result",
+            "error": str(e)
+        }), 500
 
 # =========================================================
 # DEVICE REACHABILITY
