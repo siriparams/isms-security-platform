@@ -1,12 +1,12 @@
 ﻿{
     "os_version":  "10.0.19045",
-    "failed_count":  3,
+    "failed_count":  2,
     "machine_guid":  "883a0d31-91d4-4777-88c6-1153cd7cdbb8",
     "audit_profile":  "Windows Endpoint Security",
-    "overall_score":  40,
-    "audit_id":  "AUD-20261001-160242",
+    "overall_score":  60,
+    "audit_id":  "AUD-20261007-114247",
     "smbios_uuid":  "9AF3E1F7-F256-11EA-80E7-5405DB4FBE31",
-    "audit_timestamp":  "2026-10-01T10:32:42.9715318Z",
+    "audit_timestamp":  "2026-10-07T06:12:47.6616727Z",
     "local_administrators":  [
                                  "DESKTOP-8C1IFC0\\Administrator",
                                  "DESKTOP-8C1IFC0\\PARAMATHMA"
@@ -14,7 +14,7 @@
     "total_checks":  5,
     "operating_system":  "Microsoft Windows 10 Home Single Language",
     "compliance_standard":  "Initial ISMS Security Baseline",
-    "status":  "FAILED",
+    "status":  "NEEDS_REVIEW",
     "hostname":  "DESKTOP-8C1IFC0",
     "checks":  [
                    {
@@ -55,13 +55,13 @@
                    },
                    {
                        "expected_value":  "Running",
-                       "status":  "FAIL",
+                       "status":  "PASS",
                        "check_id":  "WIN-005",
                        "check_name":  "Windows Update Service",
-                       "severity":  "MEDIUM",
+                       "severity":  "LOW",
                        "category":  "Patch Management",
-                       "observed_value":  "Stopped"
+                       "observed_value":  "Running"
                    }
                ],
-    "passed_count":  2
+    "passed_count":  3
 }
