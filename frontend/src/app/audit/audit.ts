@@ -82,7 +82,7 @@ export class Audit implements OnInit {
   constructor(
     private route: ActivatedRoute,
     private router: Router
-  ) {}
+  ) { }
   // =====================================================
   // INITIALIZE
   // =====================================================
@@ -423,7 +423,7 @@ export class Audit implements OnInit {
       'Asset Management',
       'Hostname collected',
       this.asset.hostname ||
-        'Not collected',
+      'Not collected',
       this.asset.hostname
         ? 'PASS'
         : 'FAIL',
@@ -632,7 +632,7 @@ export class Audit implements OnInit {
       'Agent Management',
       'Agent version identified',
       agentVersion ||
-        'Not collected',
+      'Not collected',
       agentVersion
         ? 'PASS'
         : 'FAIL',
@@ -820,7 +820,7 @@ export class Audit implements OnInit {
 
     const flaggedServices =
       services &&
-      Array.isArray(services.Flagged_Services)
+        Array.isArray(services.Flagged_Services)
         ? services.Flagged_Services
         : null;
 
@@ -839,10 +839,10 @@ export class Audit implements OnInit {
       flaggedServices === null
         ? 'Service scan not available'
         : flaggedServices
-            .map((service: any) =>
-              service.DisplayName || service.Name
-            )
-            .join(', ');
+          .map((service: any) =>
+            service.DisplayName || service.Name
+          )
+          .join(', ');
 
     addCheck(
       17,
@@ -862,6 +862,201 @@ export class Audit implements OnInit {
           ? 'The agent scanned running services and found no configured review candidates. This does not establish that every service is compliant.'
           : 'The agent detected services configured as potential review candidates. Confirm whether each is required before deciding whether remediation is needed.'
     );
+
+    // ===================================================
+    // SYSTEM LOCK POLICY — WIN-018
+    // ===================================================
+    const systemLock = this.findValue(
+      security,
+      ['System_Lock', 'system_lock', 'SystemLock']
+    ) as any;
+
+    const lockData =
+      systemLock && typeof systemLock === 'object'
+        ? systemLock
+        : null;
+
+    const screenSaverEnabled = lockData?.ScreenSaverEnabled;
+    const screenSaverSecure = lockData?.ScreenSaverSecure;
+    const timeout = lockData?.InactivityTimeoutSeconds;
+
+    const lockEvidenceComplete =
+      lockData?.EvidenceAvailable === true &&
+      typeof screenSaverEnabled === 'boolean' &&
+      typeof screenSaverSecure === 'boolean' &&
+      typeof timeout === 'number' &&
+      Number.isFinite(timeout) &&
+      timeout > 0;
+
+    let lockStatus: 'PASS' | 'FAIL' | 'MANUAL REVIEW';
+
+    if (!lockEvidenceComplete) {
+      lockStatus = 'MANUAL REVIEW';
+    } else if (
+      screenSaverEnabled === false ||
+      screenSaverSecure === false ||
+      timeout > 900
+    ) {
+      lockStatus = 'FAIL';
+    } else {
+      lockStatus = 'PASS';
+    }
+
+    const lockObserved = lockData
+      ? `Screen saver: ${screenSaverEnabled === null || screenSaverEnabled === undefined ? 'Unknown' : screenSaverEnabled ? 'Enabled' : 'Disabled'} | Password on resume: ${screenSaverSecure === null || screenSaverSecure === undefined ? 'Unknown' : screenSaverSecure ? 'Enabled' : 'Disabled'} | Timeout: ${typeof timeout === 'number' ? `${timeout} seconds` : 'Not collected'}`
+      : 'System lock evidence not collected';
+
+    addCheck(
+      18,
+      'System Lock Policy',
+      'Access Control',
+      'Screen saver enabled, password required on resume, and timeout within 15 minutes',
+      lockObserved,
+      lockStatus,
+      'HIGH',
+      lockStatus === 'PASS'
+        ? 'Collected screen-saver settings meet the configured initial audit rule. Effective machine-wide policy should still be verified for production use.'
+        : lockStatus === 'FAIL'
+          ? 'Collected settings violate the configured initial audit rule.'
+          : 'Required screen-lock evidence is missing or incomplete. Verify effective Windows policy before deciding compliance.'
+    );
+
+    // ============================================================
+    // PASSWORD POLICY - WIN-019 to WIN-020
+    // ============================================================
+    const passwordPolicy = this.findValue(
+      security,
+      ['Password_Policy', 'password_policy', 'PasswordPolicy']
+    ) as any;
+    const passwordEvidenceAvailable = passwordPolicy?.EvidenceAvailable === true;
+    const passwordStrengthPass =
+      passwordEvidenceAvailable &&
+      typeof passwordPolicy?.MinimumPasswordLength === 'number' &&
+      passwordPolicy.MinimumPasswordLength >= 8 &&
+      passwordPolicy?.PasswordComplexityEnabled === true &&
+      typeof passwordPolicy?.PasswordHistorySize === 'number' &&
+      passwordPolicy.PasswordHistorySize >= 2;
+    const passwordSecurityPass =
+      passwordEvidenceAvailable &&
+      typeof passwordPolicy?.MaximumPasswordAgeDays === 'number' &&
+      passwordPolicy.MaximumPasswordAgeDays > 0 &&
+      passwordPolicy.MaximumPasswordAgeDays <= 90 &&
+      passwordPolicy?.ReversiblePasswordStorageEnabled === false;
+    const passwordChecks = [
+      {
+        id: 19,
+        title: 'Password Strength & Complexity',
+        observed: passwordEvidenceAvailable
+          ? `Minimum length: ${passwordPolicy.MinimumPasswordLength}; complexity: ${passwordPolicy.PasswordComplexityEnabled}; history: ${passwordPolicy.PasswordHistorySize}`
+          : 'Not collected',
+        passed: passwordStrengthPass,
+        detail: 'Minimum length must be at least 8 characters, complexity must be enabled, and at least 2 previous passwords must be remembered.'
+      },
+      {
+        id: 20,
+        title: 'Password Security & Expiration',
+        observed: passwordEvidenceAvailable
+          ? `Maximum age: ${passwordPolicy.MaximumPasswordAgeDays} days; reversible storage: ${passwordPolicy.ReversiblePasswordStorageEnabled}`
+          : 'Not collected',
+        passed: passwordSecurityPass,
+        detail: 'Maximum password age must be 1–90 days and reversible password storage must be disabled.'
+      }
+    ];
+    for (const item of passwordChecks) {
+      const status = !passwordEvidenceAvailable
+        ? 'MANUAL REVIEW'
+        : item.passed
+          ? 'PASS'
+          : 'FAIL';
+      addCheck(
+        item.id,
+        item.title,
+        'Access Control',
+        item.detail,
+        item.observed,
+        status,
+        'HIGH',
+        status === 'PASS'
+          ? 'Collected password settings meet the initial audit rule.'
+          : status === 'FAIL'
+            ? 'One or more collected password settings do not meet the initial audit rule.'
+            : 'Password policy evidence is missing or incomplete.'
+      );
+    }
+
+    // NETWORK INTERFACE SECURITY - WIN-021
+const securityPosture = this.parseJSON(this.asset.security_posture) || {};
+const networkSecurity = securityPosture.Network_Interface_Security;
+
+    const networkEvidenceAvailable = networkSecurity?.EvidenceAvailable === true;
+    const physicalInterfaces = Array.isArray(networkSecurity?.PhysicalInterfaces)
+      ? networkSecurity.PhysicalInterfaces
+      : [];
+    const activeInterfaces = physicalInterfaces.filter(
+      (adapter: any) => adapter?.Connected === true
+    );
+    const wifiEnabled = networkSecurity?.WiFiEnabled;
+    const bluetoothEnabled = networkSecurity?.BluetoothEnabled;
+    const networkPass =
+      networkEvidenceAvailable &&
+      activeInterfaces.length === 1 &&
+      activeInterfaces[0]?.InterfaceType !== 'WiFi' &&
+      wifiEnabled === false &&
+      bluetoothEnabled === false;
+    const networkStatus = !networkEvidenceAvailable ||
+      typeof wifiEnabled !== 'boolean' ||
+      typeof bluetoothEnabled !== 'boolean'
+      ? 'MANUAL REVIEW'
+      : networkPass
+        ? 'PASS'
+        : 'FAIL';
+    addCheck(
+      21,
+      'Network Interface Security',
+      'Network Security',
+      'Only one physical network interface should be connected; Wi-Fi and Bluetooth must be disabled under this audit rule.',
+      networkEvidenceAvailable
+        ? `Connected interfaces: ${activeInterfaces.length}; Wi-Fi enabled: ${wifiEnabled}; Bluetooth enabled: ${bluetoothEnabled}`
+        : 'Network security evidence not collected',
+      networkStatus,
+      'HIGH',
+      networkStatus === 'PASS'
+        ? 'Network interface settings meet the initial audit rule.'
+        : networkStatus === 'FAIL'
+          ? 'One or more network interface settings violate the initial audit rule.'
+          : 'Network interface evidence is missing or incomplete.'
+    );
+
+
+    // USB DEVICE AUTHORIZATION - WIN-022
+    const usbStorage = this.parseJSON(this.asset.security_posture)?.USB_Storage;
+    const usbEvidenceAvailable = usbStorage?.EvidenceAvailable === true;
+    const usbStorageStartValue = usbStorage?.USBStorageStartValue;
+    const usbPolicyVerified = usbStorage?.AuthorizedDevicesOnly === true;
+    const usbStatus = !usbEvidenceAvailable || typeof usbPolicyVerified !== 'boolean'
+      ? 'MANUAL REVIEW'
+      : usbPolicyVerified
+        ? 'PASS'
+        : usbStorageStartValue === 3
+          ? 'MANUAL REVIEW'
+          : 'FAIL';
+    addCheck(
+      22,
+      'USB Device Authorization',
+      'Device Security',
+      'Only authorized USB storage devices should be permitted.',
+      usbEvidenceAvailable
+        ? `USB storage start value: ${usbStorageStartValue}; authorized-device-only policy: ${usbPolicyVerified ? 'verified' : 'not verified'}`
+        : 'USB authorization policy evidence not collected',
+      usbStatus,
+      'HIGH',
+      usbStatus === 'PASS'
+        ? 'Authorized USB device restrictions are verified.'
+        : usbStatus === 'FAIL'
+          ? 'Evidence confirms USB storage restrictions do not meet the audit rule.'
+          : 'Authorized-device-only USB policy could not be verified.'
+    );
+
 
     return checks;
   }
@@ -1825,11 +2020,9 @@ export class Audit implements OnInit {
           'SmbiosUuid'
         ]
       );
-    return `Machine GUID: ${
-      this.cleanValue(machine)
-    } | SMBIOS UUID: ${
-      this.cleanValue(smbios)
-    }`;
+    return `Machine GUID: ${this.cleanValue(machine)
+      } | SMBIOS UUID: ${this.cleanValue(smbios)
+      }`;
   }
   getTPMValue(
     identity: any
@@ -1851,11 +2044,9 @@ export class Audit implements OnInit {
           'tpm_spec_version'
         ]
       );
-    return `Present: ${
-      this.cleanValue(present)
-    } | Version: ${
-      this.cleanValue(version)
-    }`;
+    return `Present: ${this.cleanValue(present)
+      } | Version: ${this.cleanValue(version)
+      }`;
   }
   hasTPMInfo(
     identity: any
@@ -1889,8 +2080,8 @@ export class Audit implements OnInit {
       Array.isArray(network)
         ? network.length > 0
         : !!network &&
-          typeof network === 'object' &&
-          Object.keys(network).length > 0
+        typeof network === 'object' &&
+        Object.keys(network).length > 0
     );
   }
   getNetworkInterface(
@@ -2013,9 +2204,8 @@ export class Audit implements OnInit {
     link.href =
       url;
     link.download =
-      `${
-        this.asset.hostname ||
-        'endpoint'
+      `${this.asset.hostname ||
+      'endpoint'
       }-audit-report.json`;
     link.click();
     window.URL.revokeObjectURL(

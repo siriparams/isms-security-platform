@@ -264,7 +264,7 @@ if ($network.Count -eq 0) {
             IP_Address  = @(
                 $adapter.IPAddress |
                     Where-Object {
-                        $_ -match "^\\\d{1,3}(\\\\.\\\d{1,3}){3}$"
+                        $_ -match "^\\\\\d{1,3}(\\\\\\\\.\\\\\d{1,3}){3}$"
                     }
             )
             Gateway = @(
@@ -276,6 +276,53 @@ if ($network.Count -eq 0) {
         }
     }
 }
+
+$networkSecurity = [ordered]@{
+    PhysicalInterfaces = @()
+    ActivePhysicalInterfaceCount = $null
+    WiFiEnabled = $null
+    WiFiConnected = $null
+    BluetoothEnabled = $null
+    EvidenceAvailable = $false
+    CollectionErrors = @()
+}
+try {
+    $adapters = @(Get-NetAdapter -Physical -ErrorAction Stop)
+    foreach ($adapter in $adapters) {
+        $networkSecurity.PhysicalInterfaces += [ordered]@{
+            Name = $adapter.Name
+            InterfaceDescription = $adapter.InterfaceDescription
+            InterfaceType = if ($adapter.Name -match 'Wi-?Fi|Wireless|WLAN' -or $adapter.InterfaceDescription -match 'Wi-?Fi|Wireless|WLAN|802\.11') { 'WiFi' } else { 'WiredOrOther' }
+            Status = [string]$adapter.Status
+            Enabled = ([string]$adapter.Status -ne 'Disabled')
+            Connected = ([string]$adapter.Status -eq 'Up')
+        }
+    }
+    $networkSecurity.ActivePhysicalInterfaceCount = @($networkSecurity.PhysicalInterfaces | Where-Object { $_.Connected }).Count
+    $wifiAdapters = @($networkSecurity.PhysicalInterfaces | Where-Object { $_.InterfaceType -eq 'WiFi' })
+    if ($wifiAdapters.Count -gt 0) {
+        $networkSecurity.WiFiEnabled = @($wifiAdapters | Where-Object { $_.Enabled }).Count -gt 0
+        $networkSecurity.WiFiConnected = @($wifiAdapters | Where-Object { $_.Connected }).Count -gt 0
+    } else {
+        $networkSecurity.WiFiEnabled = $false
+        $networkSecurity.WiFiConnected = $false
+    }
+    $networkSecurity.EvidenceAvailable = $true
+} catch {
+    $networkSecurity.CollectionErrors += "Physical network adapter collection failed: $($_.Exception.Message)"
+}
+try {
+    $bluetoothDevices = @(Get-PnpDevice -Class Bluetooth -PresentOnly -ErrorAction Stop)
+    $bluetoothRadios = @($bluetoothDevices | Where-Object { $_.FriendlyName -match 'Radio|Wireless|Bluetooth' })
+    if ($bluetoothRadios.Count -gt 0) {
+        $networkSecurity.BluetoothEnabled = @($bluetoothRadios | Where-Object { $_.Status -eq 'OK' }).Count -gt 0
+    } else {
+        $networkSecurity.BluetoothEnabled = $false
+    }
+} catch {
+    $networkSecurity.CollectionErrors += "Bluetooth status collection failed: $($_.Exception.Message)"
+}
+
 # ============================================================
 # OPERATING SYSTEM
 # ============================================================
@@ -574,6 +621,108 @@ foreach ($admin in @($localAdmins)) {
     }
 }
 # ------------------------------------------------------------
+# SYSTEM LOCK POLICY
+# ------------------------------------------------------------
+$systemLockPolicy = [ordered]@{
+    InactivityTimeoutSeconds = $null
+    ScreenSaverEnabled = $null
+    ScreenSaverSecure = $null
+    EvidenceAvailable = $false
+}
+try {
+    $personalizationPath = "HKCU:\Control Panel\Desktop"
+    if (Test-Path $personalizationPath) {
+        $desktopSettings = Get-ItemProperty -Path $personalizationPath -ErrorAction Stop
+        $screenSaverEnabled = $desktopSettings.ScreenSaveActive
+        $screenSaverSecure = $desktopSettings.ScreenSaverIsSecure
+        $timeout = $null
+        if ($desktopSettings.ScreenSaveTimeOut -match '^\d+$') {
+            $timeout = [int]$desktopSettings.ScreenSaveTimeOut
+        }
+        $systemLockPolicy.ScreenSaverEnabled = if ($screenSaverEnabled -eq "1") { $true } elseif ($screenSaverEnabled -eq "0") { $false } else { $null }
+        $systemLockPolicy.ScreenSaverSecure = if ($screenSaverSecure -eq "1") { $true } elseif ($screenSaverSecure -eq "0") { $false } else { $null }
+        $systemLockPolicy.InactivityTimeoutSeconds = $timeout
+        $systemLockPolicy.EvidenceAvailable = $true
+    }
+}
+catch {
+    $systemLockPolicy.EvidenceAvailable = $false
+}
+# ------------------------------------------------------------
+# PASSWORD POLICY
+# ------------------------------------------------------------
+$passwordPolicy = [ordered]@{
+    MinimumPasswordLength = $null
+    MaximumPasswordAgeDays = $null
+    MinimumPasswordAgeDays = $null
+    PasswordHistorySize = $null
+    PasswordComplexityEnabled = $null
+    ReversiblePasswordStorageEnabled = $null
+    EvidenceAvailable = $false
+    CollectionError = $null
+}
+$passwordPolicyPath = Join-Path $env:TEMP "isms-password-policy.cfg"
+try {
+        $exportOutput = & secedit.exe /export /cfg $passwordPolicyPath 2>&1
+    if (-not (Test-Path $passwordPolicyPath)) {
+        throw "Windows security policy export failed. Output: $exportOutput"
+    }
+    $policyLines = Get-Content -Path $passwordPolicyPath -ErrorAction Stop
+    $policyMap = @{}
+    foreach ($line in $policyLines) {
+        if ($line -match '^\s*(MinimumPasswordLength|MaximumPasswordAge|MinimumPasswordAge|PasswordHistorySize|PasswordComplexity|ClearTextPassword)\s*=\s*(-?\d+)\s*$') {
+            $policyMap[$Matches[1]] = [int]$Matches[2]
+        }
+    }
+    if ($policyMap.ContainsKey("MinimumPasswordLength")) {
+        $passwordPolicy.MinimumPasswordLength = $policyMap["MinimumPasswordLength"]
+    }
+    if ($policyMap.ContainsKey("MaximumPasswordAge")) {
+        $age = $policyMap["MaximumPasswordAge"]
+        $passwordPolicy.MaximumPasswordAgeDays = if ($age -ge 0) { $age } else { -1 }
+    }
+    if ($policyMap.ContainsKey("MinimumPasswordAge")) {
+        $passwordPolicy.MinimumPasswordAgeDays = $policyMap["MinimumPasswordAge"]
+    }
+    if ($policyMap.ContainsKey("PasswordHistorySize")) {
+        $passwordPolicy.PasswordHistorySize = $policyMap["PasswordHistorySize"]
+    }
+    if ($policyMap.ContainsKey("PasswordComplexity")) {
+        $passwordPolicy.PasswordComplexityEnabled = ($policyMap["PasswordComplexity"] -eq 1)
+    }
+    if ($policyMap.ContainsKey("ClearTextPassword")) {
+        $passwordPolicy.ReversiblePasswordStorageEnabled = ($policyMap["ClearTextPassword"] -eq 1)
+    }
+    $passwordPolicy.EvidenceAvailable = $policyMap.Count -gt 0
+    if (-not $passwordPolicy.EvidenceAvailable) {
+        $passwordPolicy.CollectionError = "No password policy values were found in the exported policy."
+    }
+}
+catch {
+    $passwordPolicy.EvidenceAvailable = $false
+    $passwordPolicy.CollectionError = $_.Exception.Message
+}
+
+# USB STORAGE SECURITY
+$usbStorageSecurity = [ordered]@{
+    USBStorageStartValue = $null
+    USBStorageAccessEnabled = $null
+    EvidenceAvailable = $false
+}
+try {
+    $usbPath = "HKLM:\SYSTEM\CurrentControlSet\Services\USBSTOR"
+    if (Test-Path $usbPath) {
+        $usbStart = (Get-ItemProperty -Path $usbPath -Name Start -ErrorAction Stop).Start
+        $usbStorageSecurity.USBStorageStartValue = [int]$usbStart
+        $usbStorageSecurity.USBStorageAccessEnabled = ([int]$usbStart -eq 3)
+        $usbStorageSecurity.EvidenceAvailable = $true
+    }
+}
+catch {
+    $usbStorageSecurity.EvidenceAvailable = $false
+}
+
+# ------------------------------------------------------------
 # SECURITY POSTURE OBJECT
 # ------------------------------------------------------------
 $securityPosture = [ordered]@{
@@ -584,6 +733,10 @@ $securityPosture = [ordered]@{
     Encryption = $encryption
     Local_Administrators = $localAdministrators
     Services = $serviceScanResult
+    System_Lock = $systemLockPolicy
+    Password_Policy = $passwordPolicy
+    Network_Interface_Security = $networkSecurity
+    USB_Storage = $usbStorageSecurity
 }
 # ============================================================
 # SOFTWARE INVENTORY
