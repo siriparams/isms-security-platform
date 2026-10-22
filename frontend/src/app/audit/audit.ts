@@ -1058,6 +1058,44 @@ const networkSecurity = securityPosture.Network_Interface_Security;
     );
 
 
+    // SYSTEM BOOT SECURITY - WIN-023 and WIN-024
+    const bootSecurity = this.parseJSON(this.asset.security_posture)?.Boot_Security;
+    addCheck(
+      23,
+      'BIOS / UEFI Password Review',
+      'System Boot Security',
+      'A BIOS/UEFI administrator password should be configured.',
+      'BIOS/UEFI password status cannot be verified by the Windows agent.',
+      'MANUAL REVIEW',
+      'HIGH',
+      'Open the device BIOS/UEFI setup during startup and verify that an administrator/setup password is configured. Do not record the password itself.'
+    );
+    const autoLogonEnabled = bootSecurity?.WindowsAutoLogonEnabled;
+    const bootEvidenceAvailable = bootSecurity?.EvidenceAvailable === true && typeof autoLogonEnabled === 'boolean';
+    const windowsSignInStatus = !bootEvidenceAvailable
+      ? 'MANUAL REVIEW'
+      : autoLogonEnabled
+        ? 'FAIL'
+        : 'PASS';
+    addCheck(
+      24,
+      'Windows Automatic Logon Review',
+      'System Boot Security',
+      'Windows automatic logon should be disabled so interactive sign-in is required.',
+      !bootEvidenceAvailable
+        ? 'Automatic logon setting not collected'
+        : autoLogonEnabled
+          ? 'Automatic logon is enabled'
+          : 'Automatic logon is disabled',
+      windowsSignInStatus,
+      'HIGH',
+      windowsSignInStatus === 'PASS'
+        ? 'The AutoAdminLogon registry setting is not enabled. This does not prove that the user account has a password; verify the sign-in requirement separately.'
+        : windowsSignInStatus === 'FAIL'
+          ? 'Windows automatic logon appears to be enabled; verify and disable it if not explicitly approved.'
+          : 'The automatic-logon setting could not be verified. Check Windows sign-in settings manually.'
+    );
+
     return checks;
   }
   // =====================================================

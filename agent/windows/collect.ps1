@@ -723,6 +723,32 @@ catch {
 }
 
 # ------------------------------------------------------------
+# SYSTEM BOOT / WINDOWS SIGN-IN SECURITY
+# ------------------------------------------------------------
+$bootSecurity = [ordered]@{
+    BiosPasswordStatus = "MANUAL REVIEW"
+    WindowsAutoLogonEnabled = $null
+    EvidenceAvailable = $false
+    CollectionNote = "BIOS/UEFI password cannot be reliably verified from Windows; verify directly in firmware settings."
+}
+try {
+    $winlogonPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon"
+    if (Test-Path $winlogonPath) {
+        $winlogon = Get-ItemProperty -Path $winlogonPath -ErrorAction Stop
+        $autoLogonValue = [string]$winlogon.AutoAdminLogon
+        if ($autoLogonValue -eq "1") {
+            $bootSecurity.WindowsAutoLogonEnabled = $true
+            $bootSecurity.EvidenceAvailable = $true
+        } elseif ($autoLogonValue -eq "0" -or [string]::IsNullOrWhiteSpace($autoLogonValue)) {
+            $bootSecurity.WindowsAutoLogonEnabled = $false
+            $bootSecurity.EvidenceAvailable = $true
+        }
+    }
+} catch {
+    $bootSecurity.EvidenceAvailable = $false
+}
+
+# ------------------------------------------------------------
 # SECURITY POSTURE OBJECT
 # ------------------------------------------------------------
 $securityPosture = [ordered]@{
@@ -737,6 +763,7 @@ $securityPosture = [ordered]@{
     Password_Policy = $passwordPolicy
     Network_Interface_Security = $networkSecurity
     USB_Storage = $usbStorageSecurity
+    Boot_Security = $bootSecurity
 }
 # ============================================================
 # SOFTWARE INVENTORY
