@@ -731,20 +731,32 @@ $bootSecurity = [ordered]@{
     EvidenceAvailable = $false
     CollectionNote = "BIOS/UEFI password cannot be reliably verified from Windows; verify directly in firmware settings."
 }
+
 try {
     $winlogonPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon"
-    if (Test-Path $winlogonPath) {
-        $winlogon = Get-ItemProperty -Path $winlogonPath -ErrorAction Stop
-        $autoLogonValue = [string]$winlogon.AutoAdminLogon
-        if ($autoLogonValue -eq "1") {
-            $bootSecurity.WindowsAutoLogonEnabled = $true
-            $bootSecurity.EvidenceAvailable = $true
-        } elseif ($autoLogonValue -eq "0" -or [string]::IsNullOrWhiteSpace($autoLogonValue)) {
-            $bootSecurity.WindowsAutoLogonEnabled = $false
-            $bootSecurity.EvidenceAvailable = $true
-        }
+
+    $winlogon = Get-ItemProperty `
+        -Path $winlogonPath `
+        -ErrorAction Stop
+
+    $autoLogonValue = [string]$winlogon.AutoAdminLogon
+
+    if ($autoLogonValue -eq "1") {
+        $bootSecurity.WindowsAutoLogonEnabled = $true
+        $bootSecurity.EvidenceAvailable = $true
     }
-} catch {
+    elseif ($autoLogonValue -eq "0") {
+
+        $bootSecurity.WindowsAutoLogonEnabled = $false
+        $bootSecurity.EvidenceAvailable = $true
+    }
+    else {
+        $bootSecurity.WindowsAutoLogonEnabled = $null
+        $bootSecurity.EvidenceAvailable = $false
+    }
+}
+catch {
+    $bootSecurity.WindowsAutoLogonEnabled = $null
     $bootSecurity.EvidenceAvailable = $false
 }
 

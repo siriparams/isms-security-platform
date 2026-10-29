@@ -213,10 +213,17 @@ export class Audit implements OnInit {
       return [];
     }
     const checks: AuditCheck[] = [];
-    const security =
-      this.parseJSON(
-        this.asset.security_posture
-      ) || {};
+    // The agent/backend may provide security_posture as an object,
+    // a JSON string, or a JSON string encoded inside another JSON string.
+    // Unwrap up to two levels so all security checks read the same object.
+    let securityData: any = this.parseJSON(this.asset.security_posture);
+    if (typeof securityData === 'string') {
+      securityData = this.parseJSON(securityData);
+    }
+    const security: any =
+      securityData && typeof securityData === 'object'
+        ? securityData
+        : {};
     const management =
       this.parseJSON(
         this.asset.management
@@ -985,8 +992,10 @@ export class Audit implements OnInit {
     }
 
     // NETWORK INTERFACE SECURITY - WIN-021
-const securityPosture = this.parseJSON(this.asset.security_posture) || {};
-const networkSecurity = securityPosture.Network_Interface_Security;
+    const networkSecurity = this.findValue(
+      security,
+      ['Network_Interface_Security', 'network_interface_security']
+    ) as any;
 
     const networkEvidenceAvailable = networkSecurity?.EvidenceAvailable === true;
     const physicalInterfaces = Array.isArray(networkSecurity?.PhysicalInterfaces)
@@ -1010,6 +1019,7 @@ const networkSecurity = securityPosture.Network_Interface_Security;
       : networkPass
         ? 'PASS'
         : 'FAIL';
+
     addCheck(
       21,
       'Network Interface Security',
@@ -1027,19 +1037,22 @@ const networkSecurity = securityPosture.Network_Interface_Security;
           : 'Network interface evidence is missing or incomplete.'
     );
 
-
     // USB DEVICE AUTHORIZATION - WIN-022
-    const usbStorage = this.parseJSON(this.asset.security_posture)?.USB_Storage;
+    const usbStorage = this.findValue(
+      security,
+      ['USB_Storage', 'usb_storage']
+    ) as any;
     const usbEvidenceAvailable = usbStorage?.EvidenceAvailable === true;
     const usbStorageStartValue = usbStorage?.USBStorageStartValue;
     const usbPolicyVerified = usbStorage?.AuthorizedDevicesOnly === true;
-    const usbStatus = !usbEvidenceAvailable || typeof usbPolicyVerified !== 'boolean'
+    const usbStatus = !usbEvidenceAvailable
       ? 'MANUAL REVIEW'
       : usbPolicyVerified
         ? 'PASS'
         : usbStorageStartValue === 3
           ? 'MANUAL REVIEW'
           : 'FAIL';
+
     addCheck(
       22,
       'USB Device Authorization',
@@ -1057,9 +1070,17 @@ const networkSecurity = securityPosture.Network_Interface_Security;
           : 'Authorized-device-only USB policy could not be verified.'
     );
 
-
     // SYSTEM BOOT SECURITY - WIN-023 and WIN-024
-    const bootSecurity = this.parseJSON(this.asset.security_posture)?.Boot_Security;
+    const bootSecurity = this.findValue(
+      security,
+      ['Boot_Security', 'boot_security']
+    ) as any;
+
+    const bootEvidenceAvailable =
+      bootSecurity?.EvidenceAvailable === true &&
+      typeof bootSecurity?.WindowsAutoLogonEnabled === 'boolean';
+    const autoLogonEnabled = bootSecurity?.WindowsAutoLogonEnabled;
+
     addCheck(
       23,
       'BIOS / UEFI Password Review',
@@ -1070,13 +1091,13 @@ const networkSecurity = securityPosture.Network_Interface_Security;
       'HIGH',
       'Open the device BIOS/UEFI setup during startup and verify that an administrator/setup password is configured. Do not record the password itself.'
     );
-    const autoLogonEnabled = bootSecurity?.WindowsAutoLogonEnabled;
-    const bootEvidenceAvailable = bootSecurity?.EvidenceAvailable === true && typeof autoLogonEnabled === 'boolean';
+
     const windowsSignInStatus = !bootEvidenceAvailable
       ? 'MANUAL REVIEW'
       : autoLogonEnabled
         ? 'FAIL'
         : 'PASS';
+
     addCheck(
       24,
       'Windows Automatic Logon Review',
